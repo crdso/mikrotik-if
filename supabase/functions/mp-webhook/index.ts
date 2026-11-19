@@ -9,6 +9,8 @@ import {
 export async function handler(req) {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   try {
+    // Sem assinatura nem se olha para os segredos: recusa já (evita 500 em chamadas forjadas).
+    if (!req.headers.get('x-signature')) return json({ error: 'Invalid signature' }, 401);
     const url = new URL(req.url);
     const dataId = url.searchParams.get('data.id') || '';
     const ok = await verifyMpSignature({
