@@ -174,7 +174,7 @@ Detalhes e limitações do portal cativo: [docs/netlify.md](docs/netlify.md).
 
 ## 📡 Configuração do MikroTik
 
-O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já funciona**: tudo é acréscimo reversível e cada passo tem o comando para desfazer. Resumo:
+O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já funciona**: tudo é acréscimo reversível e cada passo tem o comando para desfazer. Resumo (os arquivos finais, **com os valores da sua instalação**, saem de `npm run prepare-router` em `router-dist/`, pasta ignorada pelo Git — veja a [seção 11 do guia](docs/mikrotik.md#11-gerar-os-arquivos-com-os-valores-da-sua-instalação)):
 
 1. Backup (`/export` e `/system backup save`), guardado **fora** do repositório.
 2. `router/diagnostico.rsc` (somente leitura): versão, memória, relógio, recursos da linguagem e HTTPS.
@@ -184,6 +184,10 @@ O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já f
 6. `router/login.html` e o script `wifi-poll` (rodar à mão primeiro; depois agendar).
 
 Segurança do painel, isolamento dos passageiros, reinicialização e procedimento de emergência: [docs/operacao-e-seguranca.md](docs/operacao-e-seguranca.md).
+
+## 🎨 Personalização do nome e do visual
+
+O portal exibe o nome do serviço no cabeçalho e nas mensagens. Para usar outro nome, troque `3TRC_Starlink` em `site/index.html`, `site/app.js`, `router/login.html` e na constante `SERVICE_NAME` de `supabase/functions/_shared/common.ts` (usada na mensagem de erro e na descrição da cobrança Pix). O visual é CSS puro (`site/style.css`) com um SVG leve (`site/art.svg`): sem fontes nem bibliotecas externas, compatível com a CSP e com navegadores de portal cativo.
 
 ## 🧪 Testes
 
