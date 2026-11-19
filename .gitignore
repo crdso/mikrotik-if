@@ -1,0 +1,31 @@
+# Segredos e ambiente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+supabase/.temp/
+supabase/.branches/
+
+# Backups e exports do MikroTik (contêm senhas e chaves)
+*.backup
+*.export
+backup*.rsc
+export*.rsc
+pre-*.rsc
+antes-*.rsc
+
+# Gerado / dependências
+node_modules/
+dist-site/
+.netlify/
+*.log
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
