@@ -180,3 +180,38 @@ test('Repositório público: sem termos locais, e-mails reais, caminhos pessoais
     assert.doesNotMatch(text, personalPath, `caminho pessoal em ${rel}`);
   }
 });
+
+test('Netlify: netlify.toml correto, build por variável pública e nenhuma chave no que é publicado', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { rmSync } = await import('node:fs');
+  const toml = read('netlify.toml');
+  const live = toml.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.match(live, /command = "node scripts\/prepare-site\.mjs"/);
+  assert.match(live, /publish = "dist-site"/);
+  assert.doesNotMatch(live, /MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY|SERVICE_ROLE|service_role|eyJ/, 'segredos fora do netlify.toml');
+  assert.match(toml, /SUPABASE_PROJECT_REF/);
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(ci, /npm test/); assert.doesNotMatch(ci, /secrets\./, 'o CI não usa segredos');
+
+  const script = path.join(ROOT, 'scripts', 'prepare-site.mjs');
+  const baseEnv = { ...process.env }; for (const k of ['SUPABASE_PROJECT_REF', 'SUPABASE_URL']) delete baseEnv[k];
+  const run = (args, env) => spawnSync(process.execPath, [script, ...args], { cwd: ROOT, env: { ...baseEnv, ...env }, encoding: 'utf8' });
+  const out = path.join(ROOT, 'dist-site-test');
+  try {
+    const noRef = run(['', 'dist-site-test'], {});
+    assert.equal(noRef.status, 1); assert.match(noRef.stderr, /SUPABASE_PROJECT_REF/, 'o build falha com mensagem clara sem a variável');
+    const bad = run([], { SUPABASE_PROJECT_REF: 'SEU-PROJETO' });
+    assert.equal(bad.status, 1);
+    const viaRef = run(['', 'dist-site-test'], { SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst' });
+    assert.equal(viaRef.status, 0, viaRef.stderr);
+    assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /https:\/\/abcdefghijklmnopqrst\.supabase\.co\/functions\/v1/);
+    assert.match(readFileSync(path.join(out, '_headers'), 'utf8'), /connect-src https:\/\/abcdefghijklmnopqrst\.supabase\.co/);
+    assert.deepEqual(readdirSync(out).sort(), ['_headers', 'app.js', 'config.js', 'index.html', 'style.css']);
+    for (const f of readdirSync(out)) {
+      assert.doesNotMatch(readFileSync(path.join(out, f), 'utf8'), /service_role|MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY|sb_secret_|apikey/i, `segredo/chave em ${f}`);
+    }
+    const viaUrl = run(['', 'dist-site-test'], { SUPABASE_URL: 'https://zzzzzzzzzzzzzzzzzzzz.supabase.co' });
+    assert.equal(viaUrl.status, 0, viaUrl.stderr);
+    assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /zzzzzzzzzzzzzzzzzzzz\.supabase\.co/);
+  } finally { rmSync(out, { recursive: true, force: true }); }
+});

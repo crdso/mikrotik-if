@@ -25,9 +25,15 @@ async function check(name, run) {
 const eq = (a, b, what) => { if (a !== b) throw new Error(`${what}: esperado ${b}, veio ${a}`); };
 
 console.log(`Verificando ${fn} (origem do portal: ${origin})`);
+await check('router-sync publicada e importando o código compartilhado (?ping)', async () => {
+  const r = await fetch(`${fn}/router-sync?ping=1`);
+  eq(r.status, 200, 'status'); eq((await r.text()).trim(), 'pong', 'corpo');
+});
 await check('CORS: preflight de create-payment aceita a origem do portal', async () => {
   const r = await fetch(`${fn}/create-payment`, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' } });
-  eq(r.status, 204, 'status'); eq(r.headers.get('access-control-allow-origin'), origin, 'allow-origin');
+  eq(r.status, 204, 'status');
+  if (!r.headers.get('access-control-allow-origin')) throw new Error('sem Access-Control-Allow-Origin: o segredo SITE_ORIGIN ainda não foi cadastrado (ou é diferente de ' + origin + ')');
+  eq(r.headers.get('access-control-allow-origin'), origin, 'allow-origin');
 });
 await check('CORS: outra origem NÃO é aceita', async () => {
   const r = await fetch(`${fn}/create-payment`, { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } });

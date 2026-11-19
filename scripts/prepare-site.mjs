@@ -1,22 +1,30 @@
 #!/usr/bin/env node
-// Gera a pasta pronta para a Netlify (dist-site/) a partir de site/, trocando o
+// Gera a pasta publicável do portal (dist-site/) a partir de site/, trocando o
 // código do projeto Supabase em config.js e na CSP de _headers.
 //
-// Uso:  node scripts/prepare-site.mjs <codigo-do-projeto-supabase> [pasta-de-saida]
-// Ex.:  node scripts/prepare-site.mjs abcdefghijklmnopqrst
+// O código do projeto (Reference ID) vem, nesta ordem, de:
+//   1. argumento:            node scripts/prepare-site.mjs <codigo> [pasta-de-saida]
+//   2. variável de ambiente: SUPABASE_PROJECT_REF=<codigo>          (usada no build da Netlify)
+//   3. variável de ambiente: SUPABASE_URL=https://<codigo>.supabase.co
 //
-// O código do projeto aparece na URL do painel (…/project/<codigo>) e em
-// Settings > General > Reference ID. Não é um segredo, mas também não use a
-// chave anon/service_role aqui: este portal não precisa de nenhuma delas.
+// O Reference ID é um identificador PÚBLICO (aparece na URL do painel e nas chamadas do
+// navegador). Nunca use aqui a chave anon, a service_role nem qualquer outro segredo:
+// o portal não precisa de nenhuma chave.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const [ref, outArg] = process.argv.slice(2);
-if (!ref || !/^[a-z0-9]{10,30}$/.test(ref) || /seu-projeto/i.test(ref)) {
-  console.error('Uso: node scripts/prepare-site.mjs <codigo-do-projeto-supabase> [pasta-de-saida]\n' +
-    'O código tem só letras minúsculas e números (ex.: abcdefghijklmnopqrst).');
+const [argRef, outArg] = process.argv.slice(2);
+const urlRef = /^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/.exec(process.env.SUPABASE_URL || '')?.[1];
+const ref = (argRef || process.env.SUPABASE_PROJECT_REF || urlRef || '').trim();
+
+if (!/^[a-z0-9]{10,30}$/.test(ref) || /seu-projeto/i.test(ref)) {
+  console.error(
+    'Falta o código (Reference ID) do projeto Supabase.\n' +
+    '  - Na Netlify: Site configuration > Environment variables > SUPABASE_PROJECT_REF\n' +
+    '  - Local:      node scripts/prepare-site.mjs <codigo>\n' +
+    'O código tem só letras minúsculas e números e aparece na URL do painel do Supabase.');
   process.exit(1);
 }
 const out = path.resolve(root, outArg || 'dist-site');
@@ -37,4 +45,3 @@ writeFileSync(hdrPath, hdr);
 
 console.log(`Pronto: ${path.relative(root, out)}/  (${readdirSync(out).join(', ')})`);
 console.log(`Funções em: https://${host}/functions/v1`);
-console.log('Próximo passo: arraste a pasta inteira para a Netlify (Deploy manual).');
