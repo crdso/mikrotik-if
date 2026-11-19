@@ -131,7 +131,7 @@
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { feedback('Informe um e-mail válido.'); $('email').focus(); return; }
     store(KEY + ':email', email);
     const btn = $('pay');
-    btn.disabled = true; btn.textContent = 'Gerando Pix…';
+    btn.disabled = true; $('paylabel').textContent = 'Gerando Pix…';
     try {
       const r = await api('create-payment', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac, email }),
@@ -143,7 +143,7 @@
       if (r.status === 'paid') { enterPaid(); schedule(0); } else enterPix();
     } catch (e) {
       feedback(e.message);
-    } finally { btn.disabled = false; btn.textContent = 'Gerar Pix de R$ 5'; }
+    } finally { btn.disabled = false; $('paylabel').textContent = 'Gerar Pix'; }
   }
 
   async function copyCode() {

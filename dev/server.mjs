@@ -25,7 +25,7 @@ setInterval(() => { router.poll().catch((e) => console.error('router sim:', e.me
 
 const csp = /Content-Security-Policy:\s*(.+)/.exec(readFileSync(path.join(ROOT, 'site/_headers'), 'utf8'))[1]
   .replace('https://SEU-PROJETO.supabase.co', API);
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
 
 async function toRequest(nodeReq) {
   const chunks = []; for await (const c of nodeReq) chunks.push(c);
