@@ -8,6 +8,7 @@ export const PRICE_BRL = 5;
 export const PRICE_CENTS = 500;
 export const GRANT_SECONDS = 5 * 60 * 60; // 5 horas de uso acumulado
 export const PIX_TTL_MINUTES = 30;
+export const SERVICE_NAME = '3TRC_Starlink'; // nome exibido ao passageiro (mensagens e descrição da cobrança Pix)
 export const RECONCILE_SECONDS = 10; // intervalo mínimo entre consultas ao Mercado Pago por pedido
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

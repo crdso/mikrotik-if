@@ -49,7 +49,7 @@ test('create-payment: o navegador NÃO consegue alterar preço, descrição ou m
   const c = h.mp.creates()[0];
   assert.equal(c.body.transaction_amount, 5);
   assert.equal(c.body.payment_method_id, 'pix');
-  assert.equal(c.body.description, 'Wi-Fi a Bordo - 5 horas');
+  assert.equal(c.body.description, '3TRC_Starlink - 5 horas');
   assert.equal(c.body.external_reference, r.data.order_id);
 });
 

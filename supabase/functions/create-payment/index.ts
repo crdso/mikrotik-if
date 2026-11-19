@@ -2,7 +2,7 @@
 // Cria (ou reaproveita) o Pix de R$ 5 de um aparelho. O valor é decidido aqui
 // no servidor; nada do que o navegador enviar altera preço, descrição ou prazo.
 import {
-  GRANT_SECONDS, HttpError, MpError, PIX_TTL_MINUTES, PRICE_BRL, PRICE_CENTS, browserAllowed, cors, env, json,
+  GRANT_SECONDS, HttpError, MpError, PIX_TTL_MINUTES, SERVICE_NAME, PRICE_BRL, PRICE_CENTS, browserAllowed, cors, env, json,
   mpCancelPayment, mpCreatePix, mpDate, normalizeMac, preflight, readJson, rpc, validEmail,
 } from '../_shared/common.ts';
 
@@ -22,7 +22,7 @@ export async function handler(req) {
     const input = await readJson(req);
     const mac = normalizeMac(input?.mac);
     const email = String(input?.email ?? '').trim();
-    if (!mac) return json({ error: 'Dispositivo não identificado. Abra esta página pela tela de login do Wi-Fi a Bordo.' }, 400, headers);
+    if (!mac) return json({ error: 'Dispositivo não identificado. Abra esta página pela tela de login da rede ' + SERVICE_NAME + '.' }, 400, headers);
     if (!validEmail(email)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
 
     const r = await rpc('hotspot_reserve_order', { p_mac: mac, p_amount_cents: PRICE_CENTS, p_grant_seconds: GRANT_SECONDS });
@@ -51,7 +51,7 @@ export async function handler(req) {
     try {
       payment = await mpCreatePix({
         transaction_amount: PRICE_BRL,
-        description: 'Wi-Fi a Bordo - 5 horas',
+        description: `${SERVICE_NAME} - 5 horas`,
         payment_method_id: 'pix',
         payer: { email },
         external_reference: orderId,
