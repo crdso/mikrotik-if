@@ -65,7 +65,7 @@
       return data;
     } catch (e) {
       if (e.status) throw e;
-      const n = new Error('Sem conexão com o servidor. Verifique se está no Wi-Fi a Bordo e tente de novo.');
+      const n = new Error('Sem conexão com o servidor. Verifique se está no 3TRC_Starlink e tente de novo.');
       n.network = true; throw n;
     } finally { clearTimeout(to); }
   }
@@ -119,7 +119,7 @@
       failures += 1;
       if (e.status === 404) { enterEnded('Pedido não encontrado', 'Gere um novo Pix para continuar.'); return; }
       if (failures >= 3) {
-        const msg = 'Não consegui falar com o servidor. Confira se continua no Wi-Fi a Bordo; vou tentar de novo.';
+        const msg = 'Não consegui falar com o servidor. Confira se continua no 3TRC_Starlink; vou tentar de novo.';
         if (!$('pix').hidden) setStatus(msg, 'error'); else feedback(msg);
       }
       schedule(Math.min(POLL_MS * (1 + failures), 20000));
