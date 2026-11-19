@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wi-Fi a Bordo</title>
+<!-- Sem JavaScript: o redirecionamento acontece por meta refresh. -->
+<noscript><meta http-equiv="refresh" content="0;url=https://SEU-SITE.netlify.app/?mac=$(mac)"></noscript>
+</head>
+<body style="font-family:system-ui,sans-serif;text-align:center;padding:32px">
+<p>Preparando o portal de pagamento…</p>
+<p><a id="go" href="https://SEU-SITE.netlify.app/?mac=$(mac)">Toque aqui se não abrir sozinho</a></p>
+<script>
+  // SUBSTITUIR "SEU-SITE.netlify.app" PELO DOMÍNIO REAL DO PORTAL (3 lugares neste arquivo).
+  // "$(mac)" é preenchido pelo próprio Hotspot do MikroTik ao servir esta página.
+  location.replace('https://SEU-SITE.netlify.app/?mac=' + encodeURIComponent('$(mac)'));
+</script>
+</body>
+</html>
