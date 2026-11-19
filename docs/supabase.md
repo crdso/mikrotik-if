@@ -23,12 +23,12 @@ select public.hotspot_purge(0);                              -- apaga pedidos en
 
 ```sh
 supabase login
-supabase link --project-ref SEU_REFERENCE_ID
-supabase functions deploy create-payment
-supabase functions deploy payment-status
-supabase functions deploy mp-webhook
-supabase functions deploy router-sync
+for f in create-payment payment-status mp-webhook router-sync; do
+  supabase functions deploy $f --project-ref SEU_REFERENCE_ID --no-verify-jwt --use-api
+done
 ```
+
+(`--use-api` empacota no servidor, sem Docker local.) Depois de publicar, `GET .../router-sync?ping=1` deve responder `pong`: isso prova que o código compartilhado foi importado.
 
 `supabase/config.toml` marca `verify_jwt = false` (Mercado Pago e roteador não têm JWT do Supabase; cada função autentica por conta própria). Se algum teste retornar `401` onde se esperava `403`/`400`, a verificação de JWT ficou ligada: publique de novo com `--no-verify-jwt`.
 
@@ -57,6 +57,8 @@ supabase secrets set SITE_ORIGIN=https://seu-portal.exemplo
 Para os segredos do Mercado Pago, o painel do Supabase (*Edge Functions → Secrets*) também serve.
 
 **Rotação da chave do roteador:** `supabase secrets set ROUTER_SHARED_KEY_NEXT=<nova>` → atualize o `secret` no script do roteador → promova (`ROUTER_SHARED_KEY=<nova>`) e remova `ROUTER_SHARED_KEY_NEXT`.
+
+**Segredos ausentes = falha segura.** Enquanto um segredo não existir, a função correspondente recusa: sem `SITE_ORIGIN` os endpoints do navegador respondem 403 (e sem cabeçalhos CORS); sem `ROUTER_SHARED_KEY` o `router-sync` responde 401/500; sem `MP_WEBHOOK_SECRET` o webhook responde 401/500; sem `MP_ACCESS_TOKEN` não se gera Pix (502). **Nada libera internet** (veja `tests/secrets-missing.test.mjs`).
 
 ## 4. Verificação sem cobrança
 

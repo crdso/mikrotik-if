@@ -27,8 +27,8 @@ O MikroTik é configurado por último: até lá, todo o pagamento já deve estar
 
 ## 3. Netlify — [netlify.md](netlify.md)
 
-1. `node scripts/prepare-site.mjs SEU_REFERENCE_ID` → publicar a pasta `dist-site/`.
-2. Cadastrar `SITE_ORIGIN` com a URL final; rodar `scripts/smoke.mjs` de novo.
+1. Netlify → *Add new project → Import an existing project → GitHub* → o repositório. O `netlify.toml` define o build; crie antes do primeiro deploy a variável pública `SUPABASE_PROJECT_REF`.
+2. Depois do deploy, cadastrar `SITE_ORIGIN` (URL final, sem `/`) no Supabase; rodar `scripts/smoke.mjs` de novo.
 3. Abrir a URL **sem** `?mac=`: deve mostrar "Conecte ao Wi-Fi a Bordo".
 
 ## 4. Teste de Pix real — sem MikroTik (autorizado e pago por você)

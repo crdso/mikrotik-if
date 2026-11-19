@@ -79,3 +79,14 @@ Contexto: o equipamento real é um hEX lite com **RouterOS 6.48.6**, e o script 
 | 28 | Baixa | Textos e testes com referências específicas de um local/uso. | Texto genérico ("passageiro", "a bordo"). | Varredura de texto |
 
 Testes adicionados nesta revisão: 14 (protocolo de texto, linhas maliciosas, reinicialização, trava de execução simultânea, falha de sincronização, webhooks duplicados simultâneos, crédito vindo do servidor, rotação de chave, resumo de créditos).
+
+## Revisão 4 — publicação do backend e preparação do repositório
+
+| # | Sev. | Item | Resultado |
+|---|---|---|---|
+| 29 | Baixa | Webhook sem assinatura respondia 500 quando o segredo ainda não existia | Responde 401 antes de olhar os segredos; teste dedicado |
+| 30 | Média | Sem prova de que a falta de segredos é segura | `tests/secrets-missing.test.mjs` (8 casos): nenhum cenário de segredo ausente libera internet |
+| 31 | Média | Publicar o portal exigia copiar arquivos à mão | `netlify.toml` + `prepare-site` por variável pública (`SUPABASE_PROJECT_REF`); teste garante que nenhuma chave entra no que é publicado |
+| 32 | Baixa | Sem CI | `.github/workflows/ci.yml` roda `npm ci` e `npm test` |
+| 33 | Info | Concorrência só simulada | Verificada em sessões distintas do Postgres real (reserva e aprovação) |
+| 34 | Info | Aviso do Supabase sobre `rls_auto_enable` executável por `anon` | Função **da plataforma**, preexistente; **não alterada** (decisão do mantenedor) |

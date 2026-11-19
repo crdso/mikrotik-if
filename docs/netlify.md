@@ -11,13 +11,19 @@ O portal é **estático** (`site/`): `index.html`, `app.js`, `style.css`, `confi
 - Acessível e para telas pequenas (testado em 320 e 360 px): alvos de toque ≥ 48 px, sem rolagem horizontal, `prefers-reduced-motion`.
 - Cabeçalhos de segurança e CSP (`_headers`): `default-src 'none'`, `script-src 'self'`, `connect-src` apenas o seu projeto Supabase.
 
-## Publicação
+## Publicação (importando do GitHub)
 
-```sh
-node scripts/prepare-site.mjs SEU_REFERENCE_ID     # gera dist-site/ (troca o projeto no config.js e na CSP)
-```
+O repositório já traz o `netlify.toml` (comando `node scripts/prepare-site.mjs`, pasta publicada `dist-site`). Não é preciso copiar arquivos.
 
-Netlify → *Add new site → Deploy manually* → arraste a pasta **`dist-site/`** inteira. Depois cadastre `SITE_ORIGIN` no Supabase com a URL final (sem `/` no fim) e rode `scripts/smoke.mjs`.
+1. **Netlify → Add new project → Import an existing project → GitHub →** escolha o repositório.
+2. Os campos de build vêm do `netlify.toml`; deixe como estão.
+3. Em *Site configuration → Environment variables*, crie a variável **pública** `SUPABASE_PROJECT_REF` com o Reference ID do projeto Supabase (alternativa: `SUPABASE_URL=https://<Reference ID>.supabase.co`). Sem ela o build falha com mensagem clara.
+4. Faça o deploy. **Etapa posterior (depende da URL final):** cadastre a URL do site como `SITE_ORIGIN` no Supabase (sem `/` no fim) e rode `scripts/smoke.mjs`.
+5. Nunca cadastre na Netlify `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `ROUTER_SHARED_KEY` nem a chave `service_role`. O portal não usa nenhuma; o build só recebe o Reference ID, que é público.
+
+Publicação manual (sem GitHub): `SUPABASE_PROJECT_REF=<id> node scripts/prepare-site.mjs` e arraste a pasta `dist-site/` em *Add new site → Deploy manually*.
+
+Cabeçalhos de segurança e CSP vêm de `site/_headers` (copiado para `dist-site/`). Não há redirecionamentos: o portal é uma página única que recebe `?mac=...`.
 
 ## Portal cativo (celulares)
 
