@@ -1,0 +1,12 @@
+# As funções públicas têm verificações próprias de autorização e/ou assinatura.
+[functions.create-payment]
+verify_jwt = false
+
+[functions.payment-status]
+verify_jwt = false
+
+[functions.mp-webhook]
+verify_jwt = false
+
+[functions.router-sync]
+verify_jwt = false

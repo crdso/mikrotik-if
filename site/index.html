@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#091932">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Wi-Fi a Bordo • Internet a bordo</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/config.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <div class="mark"><span class="icon" aria-hidden="true">◉</span> WI-FI A BORDO</div>
+  <section class="card" aria-live="polite">
+
+    <!-- 1. Oferta -->
+    <div id="buy" class="panel" hidden>
+      <div class="label">Sua conexão a bordo</div>
+      <div class="price">R$ 5,00 <small>/ 5 horas</small></div>
+      <p class="lead">Internet para navegar, estudar e conversar durante o trajeto.</p>
+      <div class="features">
+        ✓ <strong>5 horas acumuladas</strong> de conexão<br>
+        ✓ <strong>Pagamento único</strong> via Pix<br>
+        ✓ Liberação automática para este aparelho
+      </div>
+      <label for="email">E-mail (o Pix exige um e-mail)</label>
+      <input type="email" id="email" autocomplete="email" inputmode="email" placeholder="seu@email.com" maxlength="254" required>
+      <button id="pay" type="button">Gerar Pix de R$ 5</button>
+      <p class="muted">Você paga pelo aplicativo do seu banco. Nada para instalar ou configurar.</p>
+    </div>
+
+    <!-- 2. Aguardando pagamento -->
+    <div id="pix" class="panel" hidden>
+      <div class="center"><div class="label">Pagamento pendente</div><h2>Seu Pix de R$ 5</h2></div>
+      <ol class="steps">
+        <li><strong>Copie</strong> o código Pix abaixo.</li>
+        <li><strong>Abra o app do seu banco</strong> e use Pix &gt; Copia e Cola.</li>
+        <li><strong>Volte aqui</strong>: a internet libera sozinha em até ~30 segundos.</li>
+      </ol>
+      <button id="copy" type="button">Copiar código Pix</button>
+      <div id="copytext" class="code" tabindex="0" aria-label="Código Pix Copia e Cola"></div>
+      <details class="qrbox">
+        <summary>Prefere pagar com outro celular? Ver QR Code</summary>
+        <img id="qr" class="qrcode" alt="QR Code do Pix" hidden>
+      </details>
+      <div id="status" class="state" role="status">Aguardando confirmação do pagamento…</div>
+      <div class="timer">Código válido por <strong id="timer">--:--</strong></div>
+      <button id="recheck" type="button" class="ghost">Já paguei — verificar agora</button>
+      <p class="muted">Se o app do banco disser que está sem internet, desligue o Wi-Fi por alguns segundos (ou use os dados móveis), pague e depois reconecte ao Wi-Fi a Bordo.</p>
+    </div>
+
+    <!-- 3. Pago, aguardando o roteador -->
+    <div id="paid" class="panel center" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <h2>Pagamento confirmado!</h2>
+      <p>Estamos liberando seu acesso. Isso leva até ~30 segundos.</p>
+      <div id="paidhint" class="state" hidden>Está demorando mais que o normal. Mantenha o Wi-Fi ligado e procure o responsável pela internet se não liberar em alguns minutos.</div>
+    </div>
+
+    <!-- 4. Liberado -->
+    <div id="done" class="panel center" hidden>
+      <div class="bigcheck" aria-hidden="true">✅</div>
+      <h2>Internet liberada!</h2>
+      <p>Seu aparelho foi autorizado. Aproveite suas 5 horas.</p>
+      <a class="action" href="http://neverssl.com/">Abrir a internet</a>
+      <p class="muted">Se ainda aparecer esta tela, desligue e ligue o Wi-Fi do celular.</p>
+    </div>
+
+    <!-- 5. Expirou / falhou -->
+    <div id="ended" class="panel center" hidden>
+      <h2 id="endedtitle">Pix expirado</h2>
+      <p id="endedtext">Este código não vale mais. Gere um novo para continuar.</p>
+      <button id="again" type="button">Gerar novo Pix</button>
+    </div>
+
+    <!-- 6. Aberto fora da rede -->
+    <div id="invalid" class="panel" hidden>
+      <h2>Conecte ao Wi-Fi a Bordo</h2>
+      <p>Abra esta página pela tela de login da rede <strong>WI-FI A BORDO</strong>. O acesso é liberado para o aparelho que o roteador identifica.</p>
+      <p class="muted">Se a tela de login não abriu sozinha, abra o navegador e acesse qualquer site (ex.: neverssl.com).</p>
+    </div>
+
+    <div id="feedback" class="state error" role="alert" hidden></div>
+  </section>
+  <p class="muted center">Suporte: procure o responsável por esta rede Wi-Fi.</p>
+</main>
+<noscript><p class="center">Ative o JavaScript para pagar e liberar a internet.</p></noscript>
+<script src="/app.js"></script>
+</body>
+</html>

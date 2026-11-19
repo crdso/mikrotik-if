@@ -1,0 +1,23 @@
+# Importação direta do GitHub na Netlify:
+#   Add new project > Import an existing project > GitHub > <usuario>/mikrotik-if
+# A Netlify lê este arquivo; nenhum campo de build precisa ser preenchido à mão.
+#
+# O build executa scripts/prepare-site.mjs, que copia site/ para dist-site/ trocando o código
+# do projeto Supabase em config.js e na política de segurança (CSP) de _headers.
+# Cabeçalhos de segurança e CSP vêm do arquivo site/_headers (copiado para dist-site/).
+# Não há redirecionamentos: o portal é uma única página (index.html) que recebe ?mac=...
+
+[build]
+  command = "node scripts/prepare-site.mjs"
+  publish = "dist-site"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# VARIÁVEL DE BUILD OBRIGATÓRIA (pública), cadastrada no painel da Netlify:
+#   SUPABASE_PROJECT_REF = <Reference ID do projeto Supabase>   (ex.: abcdefghijklmnopqrst)
+#   (alternativa: SUPABASE_URL = https://<Reference ID>.supabase.co)
+#
+# NUNCA cadastre na Netlify nem neste arquivo: MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET,
+# ROUTER_SHARED_KEY, a chave service_role ou qualquer chave do Supabase. O portal não usa
+# nenhuma; esses segredos ficam somente nos Secrets das Edge Functions do Supabase.
