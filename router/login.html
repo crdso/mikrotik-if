@@ -18,13 +18,30 @@
   // "$(mac)" e "$(error)" são preenchidos pelo próprio Hotspot do MikroTik ao servir esta página.
   // Este arquivo só ENVIA o aparelho ao portal; o portal nunca redireciona de volta (sem loop).
   (function () {
-    var url = 'https://SEU-SITE.netlify.app/?mac=' + encodeURIComponent('$(mac)');
+    var mac = '$(mac)';
+    var url = 'https://SEU-SITE.netlify.app/?mac=' + encodeURIComponent(mac);
     try {
       var el = document.getElementById('hs-error');
       var err = el ? (el.textContent || '').replace(/^\s+|\s+$/g, '').slice(0, 120) : '';
       if (err && err.indexOf('$(') !== 0) url += '&err=' + encodeURIComponent(err);
-    } catch (e) { /* sem dica de erro: segue só com o MAC */ }
-    location.replace(url);
+    } catch (e) { /* sem dica de erro: segue so com o MAC */ }
+    var sent = false;
+    function go(expired) { if (sent) return; sent = true; location.replace(url + (expired ? '&exp=1' : '')); }
+    // No login por MAC o Hotspot nao repassa $(error). O script wifi-poll grava, no proprio roteador, o arquivo
+    // hsx-<MAC>.txt ("EXP") quando o tempo daquele aparelho acabou. Aqui so se pergunta pelo MAC deste aparelho.
+    // Qualquer falha, demora ou resposta diferente de EXP segue sem dica (tela neutra de compra).
+    var key = mac.toUpperCase().replace(/:/g, '-');
+    if (!/^([0-9A-F]{2}-){5}[0-9A-F]{2}$/.test(key)) { go(false); return; }
+    try {
+      var x = new XMLHttpRequest();
+      x.open('GET', '/hsx-' + key + '.txt?_=' + new Date().getTime(), true);
+      x.timeout = 2500;
+      x.onload = function () { go(x.status === 200 && /^\s*EXP\s*$/.test(x.responseText || '')); };
+      x.onerror = function () { go(false); };
+      x.ontimeout = function () { go(false); };
+      x.send();
+      setTimeout(function () { go(false); }, 3000);
+    } catch (e2) { go(false); }
   })();
 </script>
 </body>

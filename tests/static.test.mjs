@@ -308,3 +308,18 @@ test('Identidade Wifi a Bordo: sem nome antigo, sem neverssl, instruções novas
   for (const w of ['960px', '1600px', '640px']) assert.ok(css.includes(`min-width:${w}`), `breakpoint ${w}`);
   assert.match(read('supabase/functions/_shared/common.ts'), /SERVICE_NAME = 'Wifi a Bordo'/);
 });
+
+test('RouterOS: aviso local de tempo esgotado só mexe em arquivos hsx-*.txt da pasta do Hotspot, sempre com tratamento de erro', () => {
+  const rsc = read('router/hotspot-poll.rsc');
+  const live = rsc.split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
+  const fileLines = live.split('\n').filter((l) => /\/file\b/.test(l));
+  assert.ok(fileLines.length >= 4, 'cria, ajusta, remove ao creditar e remove ao voltar a ter crédito');
+  for (const l of fileLines) assert.match(l, /hsx-|\$fp|\$fid|\$ofid/, `/file só com arquivos hsx-: ${l.trim()}`);
+  assert.doesNotMatch(live, /\/file\s+(remove|set)\s+\[find\s*\]|\/file remove \*|\/file remove \[find where name~/i, 'nunca remove arquivos em massa');
+  assert.match(live, /:local hdir "hotspot"/); assert.match(live, /contents="EXP"/);
+  assert.match(live, /:delay 2s/, 'espera a gravação do arquivo antes de ajustar o conteúdo');
+  const login = read('router/login.html');
+  assert.match(login, /XMLHttpRequest/); assert.match(login, /\/hsx-/); assert.match(login, /exp=1/);
+  assert.equal((login.match(/https:\/\/SEU-SITE\.netlify\.app/g) || []).length, 3);
+  assert.doesNotMatch(login, /fetch\(|sendBeacon|supabase/i, 'a página de login não fala com a internet');
+});

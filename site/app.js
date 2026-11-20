@@ -6,7 +6,7 @@
   const mac = (params.get('mac') || '').trim().toUpperCase();
   const MAC_OK = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac);
   // Dica do próprio Hotspot (login.html repassa $(error)): o login por MAC foi recusado por limite de tempo.
-  const LIMIT_HINT = /uptime|limit/i.test(params.get('err') || '');
+  const LIMIT_HINT = /uptime|limit/i.test(params.get('err') || '') || params.get('exp') === '1'; // exp=1: o roteador informou, para este MAC, que o tempo acabou
   const KEY = 'wifi-a-bordo:v2';
   const POLL_MS = 4000;     // acompanhando um Pix
   const WATCH_MS = 30000;   // acompanhando o crédito depois de liberado (portal aberto)

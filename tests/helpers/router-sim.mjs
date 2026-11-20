@@ -25,6 +25,7 @@ export class RouterSim {
     this.busy = false;        // variável global (some no reboot)
     this.expSent = '';        // variável global wifiExpSent (some no reboot)
     this.expReports = [];     // avisos de esgotado enviados (para os testes)
+    this.flags = new Set();   // arquivos hsx-<MAC>.txt na pasta do Hotspot (sobrevivem ao reboot, como arquivos)
   }
   reboot() { this.busy = false; this.failedPolls = 0; this.acks = []; this.expSent = ''; } // usuários e uptime persistem
 
@@ -61,6 +62,7 @@ export class RouterSim {
           if (newc.length > 65) newc = newc.slice(newc.length - 65);
           u.limit += o.dur; u.comment = newc;
         }
+        this.flags.delete(o.mac); // crédito novo/somado: o aviso de tempo esgotado deixa de valer (antes do ACK, como no script)
         if (this.dropAcks > 0) { this.dropAcks--; continue; }
         this.acks.push((await this.h.routerAckForm(o.oid, o.mac)).status);
       }
@@ -74,7 +76,9 @@ export class RouterSim {
     const keep = [], toRep = [];
     for (const [name, u] of this.users) {
       if (!u.comment.includes('o:')) continue;
+      if (u.limit > 0 && name.length === 17 && u.uptime + 10 < u.limit) this.flags.delete(name); // voltou a ter crédito
       if (u.limit > 0 && u.uptime + 10 >= u.limit && name.length === 17) { // margem de 10 s (:local expMargin)
+        this.flags.add(name); // grava/mantém o aviso local (hsx-<MAC>.txt = EXP), independe de já ter avisado o backend
         if (!this.expSent.includes(name)) { if (toRep.length < 10) toRep.push(name); } else keep.push(name);
       }
     }

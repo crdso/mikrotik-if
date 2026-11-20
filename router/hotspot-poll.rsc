@@ -40,6 +40,8 @@
 :local profile "wifi-5h"
 :local maxGrant 2d
 :local expMargin 10s
+# Pasta HTML do servidor Hotspot (/ip hotspot profile print: html-directory). Aqui ficam os avisos "hsx-<MAC>.txt".
+:local hdir "hotspot"
 
 # Evita duas execuções ao mesmo tempo; uma trava "velha" (3 min) é ignorada.
 :local run true
@@ -98,6 +100,8 @@
                                 :log info ("wifi-poll: credito somado " . $tag)
                             }
                         }
+                        # Credito novo/somado: o aviso de "tempo esgotado" deste aparelho deixa de valer.
+                        :do { /file remove [/file find where name=($hdir . "/hsx-" . [:pick $mac 0 2] . "-" . [:pick $mac 3 5] . "-" . [:pick $mac 6 8] . "-" . [:pick $mac 9 11] . "-" . [:pick $mac 12 14] . "-" . [:pick $mac 15 17] . ".txt")] } on-error={ }
                         /tool fetch url=$api mode=https http-method=post http-data=("order=" . $oid . "&mac=" . $mac) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
                     } on-error={ :log warning ("wifi-poll: falha ao aplicar/confirmar " . $tag) }
                 } else={ :log warning "wifi-poll: linha invalida ignorada" }
@@ -114,14 +118,29 @@
             :local cnt 0
             :foreach eu in=[/ip hotspot user find where comment~"o:"] do={
                 :local lim [/ip hotspot user get $eu limit-uptime]
-                :if ($lim > 0s) do={
+                :local nm [/ip hotspot user get $eu name]
+                :if (($lim > 0s) && ([:len $nm] = 17)) do={
+                    :local fp ($hdir . "/hsx-" . [:pick $nm 0 2] . "-" . [:pick $nm 3 5] . "-" . [:pick $nm 6 8] . "-" . [:pick $nm 9 11] . "-" . [:pick $nm 12 14] . "-" . [:pick $nm 15 17] . ".txt")
                     :if (([/ip hotspot user get $eu uptime] + $expMargin) >= $lim) do={
-                        :local nm [/ip hotspot user get $eu name]
-                        :if ([:len $nm] = 17) do={
-                            :if ([:typeof [:find $wifiExpSent $nm]] = "nil") do={
-                                :if ($cnt < 10) do={ :set toRep ($toRep . $nm . ","); :set cnt ($cnt + 1) }
-                            } else={ :set keep ($keep . $nm . ",") }
-                        }
+                        # Evidencia LOCAL para a pagina de login (o Hotspot nao repassa $(error) no login por MAC):
+                        # arquivo servido pelo proprio Hotspot, que o login.html consulta so para o MAC do aparelho.
+                        :do {
+                            :local fid [/file find where name=$fp]
+                            :if ([:len $fid] = 0) do={
+                                /file print file=($hdir . "/hsx-" . [:pick $nm 0 2] . "-" . [:pick $nm 3 5] . "-" . [:pick $nm 6 8] . "-" . [:pick $nm 9 11] . "-" . [:pick $nm 12 14] . "-" . [:pick $nm 15 17]) where name="hsx-nenhum"
+                                :delay 2s
+                                :set fid [/file find where name=$fp]
+                            }
+                            :if ([:len $fid] > 0) do={
+                                :if ([/file get $fid contents] != "EXP") do={ /file set $fid contents="EXP" }
+                            }
+                        } on-error={ :log warning "wifi-poll: falha ao gravar aviso de tempo esgotado" }
+                        :if ([:typeof [:find $wifiExpSent $nm]] = "nil") do={
+                            :if ($cnt < 10) do={ :set toRep ($toRep . $nm . ","); :set cnt ($cnt + 1) }
+                        } else={ :set keep ($keep . $nm . ",") }
+                    } else={
+                        # Voltou a ter credito (ou o limite foi aumentado): remove o aviso.
+                        :do { :local ofid [/file find where name=$fp]; :if ([:len $ofid] > 0) do={ /file remove $ofid } } on-error={ }
                     }
                 }
             }
