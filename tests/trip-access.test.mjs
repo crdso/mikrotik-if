@@ -11,7 +11,7 @@ let h; let router; let adm; let op;
 before(async () => { h = await createHarness(); adm = await h.makeUser('admin@example.org', 'admin'); op = await h.makeUser('operador@example.org', 'operator'); });
 after(async () => { await h.close(); });
 beforeEach(async () => {
-  for (const t of ['hotspot_router_commands', 'hotspot_access', 'hotspot_blocks', 'hotspot_orders', 'hotspot_known_hosts',
+  for (const t of ['hotspot_router_commands', 'hotspot_access', 'hotspot_blocks', 'hotspot_device_resets', 'hotspot_orders', 'hotspot_known_hosts',
     'hotspot_passengers', 'hotspot_passenger_history', 'hotspot_device_state', 'hotspot_device_credit']) await h.q(`delete from public.${t}`);
   await h.q("delete from public.hotspot_settings where key in ('hosts_feed_at', 'maintenance_at')");
   await h.q('delete from public.admin_audit_log');
@@ -567,4 +567,95 @@ test('cortesia após o tempo vencer: o usuário desativado por vencimento vira c
   assert.equal(router.users.get(MAC_A).comment, 't:pix'); assert.equal(router.canBrowseNow(MAC_A), true);
   assert.equal((await portal(MAC_A)).trial, 'active');
   await h.useTripPlan();
+});
+
+// ============================== Excluir aparelho ==============================
+const del = (mac, token = adm.token) => h.admin('device_reset', { mac }, token);
+const listed = async (mac) => (await h.admin('live', { filter: 'all' }, adm.token)).data.list.rows.some((r) => r.mac === mac);
+const listedAnyFilter = async (mac) => {
+  for (const f of ['all', 'online', 'offline', 'waiting', 'revoked', 'blocked', 'active', 'unidentified']) {
+    if ((await h.admin('live', { filter: f }, adm.token)).data.list.rows.some((r) => r.mac === mac)) return f;
+  }
+  return null;
+};
+
+test('Excluir: nunca cadastrado, cadastrado, offline e online somem da lista em qualquer filtro e não voltam no próximo poll', async () => {
+  router.connect(MAC_A); await router.poll();                       // nunca cadastrado, online
+  await onboard(MAC_B);                                             // cadastrado, sem pagamento
+  await onboard(MAC_C); router.disconnect(MAC_C);
+  await h.q("update public.hotspot_known_hosts set seen_at = now() - interval '10 minutes' where device_mac = $1", [MAC_C]); // offline
+  for (const m of [MAC_A, MAC_B, MAC_C]) {
+    assert.equal(await listed(m), true);
+    assert.equal((await del(m)).status, 200);
+  }
+  await router.poll(); await router.poll();
+  for (const m of [MAC_A, MAC_B, MAC_C]) assert.equal(await listedAnyFilter(m), null, m);
+  assert.equal((await h.q('select count(*)::int n from public.hotspot_passengers'))[0].n, 0, 'cadastro apagado');
+  assert.equal((await h.q('select count(*)::int n from public.hotspot_passenger_history'))[0].n, 0, 'histórico apagado');
+  assert.equal((await h.q("select count(*)::int n from public.admin_audit_log where action = 'device_delete'"))[0].n, 3);
+});
+
+test('Excluir: com acesso manual, revogado ou bloqueado -> some, perde a autorização e o roteador derruba', async () => {
+  await onboard(MAC_A); await act(MAC_A, 'grant'); await router.poll();
+  await onboard(MAC_B); await act(MAC_B, 'grant'); await act(MAC_B, 'revoke'); await router.poll();
+  await onboard(MAC_C); await act(MAC_C, 'block'); await router.poll();
+  for (const m of [MAC_A, MAC_B, MAC_C]) assert.equal((await del(m)).status, 200);
+  await router.poll(); await router.poll();
+  for (const m of [MAC_A, MAC_B, MAC_C]) { assert.equal(await listedAnyFilter(m), null); assert.equal(router.canBrowseNow(m), false); }
+  assert.equal((await h.q('select count(*)::int n from public.hotspot_access'))[0].n, 0);
+  assert.equal((await h.q('select count(*)::int n from public.hotspot_blocks'))[0].n, 0);
+});
+
+test('Excluir: com Pix PAGO preserva o pagamento, não reativa o acesso e não reaparece pelo pedido antigo', async () => {
+  await onboard(MAC_A); const p = await pix(MAC_A); await p.approve(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), true);
+  const r = await del(MAC_A);
+  assert.equal(r.data.payments_kept, 1);
+  await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false);
+  assert.equal(await listedAnyFilter(MAC_A), null);
+  const o = (await h.q('select payment_status, amount_cents, payer_email from public.hotspot_orders'))[0];
+  assert.equal(o.payment_status, 'paid'); assert.equal(o.amount_cents, 2500); assert.equal(o.payer_email, null, 'pagamento preservado, anonimizado');
+  router.disconnect(MAC_A); router.connect(MAC_A); router.healWindow(); await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false, 'mesmo MAC não recupera a autorização antiga');
+});
+
+test('Excluir: com Pix PENDENTE -> Pix encerrado; se pago depois, registrado sem liberar acesso', async () => {
+  await onboard(MAC_A); const p = await pix(MAC_A);
+  assert.equal((await del(MAC_A)).data.pix_pending_closed, 1);
+  await p.approve(); await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false);
+  assert.equal((await h.q("select count(*)::int n from public.hotspot_access"))[0].n, 0);
+  assert.equal((await h.q("select count(*)::int n from public.admin_audit_log where action = 'paid_not_granted'"))[0].n, 1);
+  assert.equal(await listedAnyFilter(MAC_A), null);
+});
+
+test('Excluir e voltar: novo cadastro ou nova conexão comprovada -> aparece como NOVO, sem ficha nem acesso anterior', async () => {
+  await onboard(MAC_A); const p = await pix(MAC_A); await p.approve(); await router.poll();
+  await del(MAC_A); await router.poll();
+  // ainda conectado: oculto; o portal pede cadastro do zero
+  assert.equal(await listed(MAC_A), false);
+  const st = await portal(MAC_A); assert.equal(st.registered, false); assert.equal(st.access, 'none');
+  await reg(MAC_A, 'Pessoa Nova Silva', 'nova@example.com');
+  const row = (await h.admin('live', { filter: 'all' }, adm.token)).data.list.rows.find((r) => r.mac === MAC_A);
+  assert.equal(row.status, 'waiting'); assert.equal(row.full_name, 'Pessoa Nova Silva'); assert.equal(row.paid_count, 0, 'compra antiga não volta à ficha');
+  // nova conexão comprovada pelo feed (ausente > 2 min) também reaparece
+  router.connect(MAC_B); await router.poll(); await del(MAC_B); await router.poll();
+  assert.equal(await listed(MAC_B), false);
+  router.disconnect(MAC_B); await h.q("update public.hotspot_known_hosts set seen_at = now() - interval '3 minutes' where device_mac = $1", [MAC_B]);
+  router.connect(MAC_B); await router.poll();
+  assert.equal(await listed(MAC_B), true, 'voltou como aparelho novo');
+  assert.equal((await h.admin('live', { filter: 'all' }, adm.token)).data.list.rows.find((r) => r.mac === MAC_B).status, 'not_identified');
+});
+
+test('Excluir: só administrador, MAC válido, não afeta outros aparelhos', async () => {
+  await onboard(MAC_A); await onboard(MAC_B); await act(MAC_B, 'grant'); await router.poll();
+  assert.equal((await del(MAC_A, op.token)).status, 403);
+  assert.equal((await del(MAC_A, null)).status, 401);
+  assert.equal((await del('zz')).status, 400);
+  await del(MAC_A); await router.poll();
+  assert.equal(await listed(MAC_B), true); assert.equal(router.canBrowseNow(MAC_B), true);
+  for (const role of ['anon', 'authenticated']) {
+    await assert.rejects(h.pg.transaction(async (tx) => { await tx.exec(`set local role ${role}`); await tx.query('select * from public.hotspot_device_resets'); }), /permission denied/i);
+  }
 });
