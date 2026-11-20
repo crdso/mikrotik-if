@@ -8,7 +8,10 @@ import {
   HttpError, browserAllowed, cors, env, isUuid, json, preflight, readJson, rpc,
 } from '../_shared/common.ts';
 
-const ADMIN_ONLY = new Set(['plan_save', 'setting_set', 'audit']);
+const ADMIN_ONLY = new Set(['plan_save', 'setting_set', 'audit', 'passenger_delete', 'personal_purge', 'device_action', 'transfer', 'end_trip']);
+const PEOPLE_FILTERS = new Set(['all', 'online', 'offline', 'waiting', 'unidentified', 'active', 'problem', 'blocked', 'revoked', 'pix_pending', 'manual', 'pix']);
+const DEVICE_ACTIONS = new Set(['grant', 'kick', 'revoke', 'block', 'unblock', 'reauth']);
+const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
 const PRESETS = new Set(['today', 'yesterday', 'last7', 'last30', 'month', 'custom']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATES = new Set(['pending', 'approved_waiting', 'provisioned', 'expired', 'failed', 'cancelled', 'refunded']);
@@ -63,13 +66,88 @@ async function handleAction(action, input, who) {
 
     case 'dashboard': {
       const p = await period(input);
-      const [overview, series, live, recent] = await Promise.all([
+      const [overview, series, live, recent, people] = await Promise.all([
         rpc('hotspot_admin_overview', { p_from: p.from, p_to: p.to }),
         rpc('hotspot_admin_series', { p_from: p.from, p_to: p.to, p_bucket: p.bucket }),
         rpc('hotspot_admin_live'),
         rpc('hotspot_admin_orders', { p_limit: 10, p_offset: 0, p_status: null, p_from: null, p_to: null, p_q: '' }),
+        rpc('hotspot_admin_people_summary'),
       ]);
-      return { period: p, overview, series, live, recent: recent.rows };
+      return { period: p, overview, series, live, recent: recent.rows, people };
+    }
+
+    // Passageiros / dispositivos (dados pessoais: só quem passou em authenticate() chega aqui).
+    case 'passengers': {
+      const filter = textArg(input?.filter, 20) || 'all';
+      if (!PEOPLE_FILTERS.has(filter)) throw new HttpError(400, 'Filtro inválido.');
+      return rpc('hotspot_admin_passengers', {
+        p_filter: filter, p_q: textArg(input?.q, 80), p_limit: pageNum(input?.limit, 50, 100), p_offset: pageNum(input?.offset, 0, 100000),
+      });
+    }
+
+    // Painel "Ao vivo": resumo + lista em UMA chamada (o painel repete a cada poucos segundos).
+    case 'live': {
+      const filter = textArg(input?.filter, 20) || 'all';
+      if (!PEOPLE_FILTERS.has(filter)) throw new HttpError(400, 'Filtro inválido.');
+      const [summary, list] = await Promise.all([
+        rpc('hotspot_admin_people_summary'),
+        rpc('hotspot_admin_passengers', { p_filter: filter, p_q: textArg(input?.q, 80), p_limit: pageNum(input?.limit, 200, 200), p_offset: 0 }),
+      ]);
+      return { summary, list, role: who.role };
+    }
+
+    // Liberar | Desconectar | Revogar | Bloquear | Desbloquear | Reautenticar (o banco confere o perfil admin de novo).
+    case 'device_action': {
+      const mac = String(input?.mac ?? '').toUpperCase();
+      const act = textArg(input?.op, 10);
+      if (!MAC_RE.test(mac)) throw new HttpError(400, 'Aparelho inválido.');
+      if (!DEVICE_ACTIONS.has(act)) throw new HttpError(400, 'Ação inválida.');
+      return rpc('hotspot_admin_device_action', { p_actor: who.id, p_actor_email: who.email, p_mac: mac, p_action: act, p_note: textArg(input?.note, 200) });
+    }
+
+    case 'transfer': {
+      const from = String(input?.from ?? '').toUpperCase();
+      const to = String(input?.to ?? '').toUpperCase();
+      if (!MAC_RE.test(from) || !MAC_RE.test(to) || from === to) throw new HttpError(400, 'Aparelhos inválidos.');
+      return rpc('hotspot_admin_transfer', { p_actor: who.id, p_actor_email: who.email, p_from: from, p_to: to });
+    }
+
+    case 'end_trip':
+      return rpc('hotspot_admin_end_trip', { p_actor: who.id, p_actor_email: who.email, p_confirm: textArg(input?.confirm, 20) });
+
+    case 'passenger': {
+      const mac = String(input?.mac ?? '').toUpperCase();
+      if (!MAC_RE.test(mac)) throw new HttpError(400, 'Aparelho inválido.');
+      return rpc('hotspot_admin_passenger', { p_mac: mac });
+    }
+
+    case 'passenger_delete': {
+      const mac = String(input?.mac ?? '').toUpperCase();
+      if (!MAC_RE.test(mac)) throw new HttpError(400, 'Aparelho inválido.');
+      return rpc('hotspot_admin_passenger_delete', { p_actor: who.id, p_actor_email: who.email, p_mac: mac });
+    }
+
+    case 'personal_purge': {
+      const days = Number.parseInt(String(input?.days ?? ''), 10);
+      if (!Number.isInteger(days) || days < 0 || days > 3650) throw new HttpError(400, 'Informe os dias de retenção.');
+      return rpc('hotspot_admin_personal_purge', { p_actor: who.id, p_actor_email: who.email, p_days: days });
+    }
+
+    case 'passengers_csv': {
+      const filter = textArg(input?.filter, 20) || 'all';
+      if (!PEOPLE_FILTERS.has(filter)) throw new HttpError(400, 'Filtro inválido.');
+      const rows = [];
+      for (let offset = 0; offset < 2000; offset += 100) {
+        const page = await rpc('hotspot_admin_passengers', { p_filter: filter, p_q: textArg(input?.q, 80), p_limit: 100, p_offset: offset });
+        rows.push(...page.rows);
+        if (page.rows.length < 100) break;
+      }
+      const body = csv(
+        ['nome', 'email', 'mac', 'ip', 'presenca', 'situacao', 'acesso', 'origem', 'liberado_em', 'valor_pago_mp_brl', 'bloqueado', 'ultimo_contato'],
+        rows.map((x) => [x.full_name || 'Não identificado', x.email || '', x.mac, x.ip, x.online ? 'visto recentemente' : 'sem sinal',
+          x.status, x.access_state || '', x.access_source || '', x.access_granted_at || '', brl(x.total_paid_cents),
+          x.blocked ? 'sim' : 'nao', x.last_contact]));
+      return { filename: 'passageiros.csv', csv: body, rows: rows.length };
     }
 
     case 'orders': {

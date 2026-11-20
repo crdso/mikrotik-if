@@ -21,29 +21,55 @@
 
   <section class="card" aria-live="polite">
 
-    <!-- 1. Oferta -->
-    <div id="buy" class="panel" hidden>
-      <h2 class="title">Acesse a internet</h2>
-      <p class="subtitle" id="plansub">Pague via Pix e navegue por 5 horas</p>
+    <!-- 0. Verificando (o estado vem do servidor; nada depende de localStorage) -->
+    <div id="loading" class="panel center">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loadingtext" class="subtitle">Verificando seu acesso…</p>
+    </div>
 
-      <!-- Escolha de plano: só aparece quando há 2 ou mais planos ativos (preenchido por app.js) -->
-      <div id="plans" class="plan-list" role="radiogroup" aria-label="Escolha seu acesso" hidden></div>
+    <!-- 1. Identificação obrigatória. NÃO libera internet: libera a aprovação do organizador ou o Pix aprovado. -->
+    <div id="reg" class="panel" hidden>
+      <h2 class="title">Identifique-se para continuar</h2>
+      <p class="subtitle" id="regsub">Informe seu nome completo e e-mail.</p>
 
-      <div class="price-box" id="pricebox">
-        <span class="price-amount" id="pricea">R$ 5,00</span>
-        <span class="price-sep" aria-hidden="true"></span>
-        <span class="price-time">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1565d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg>
-          <span id="pricetext">5 horas</span>
-        </span>
+      <label for="fullname" class="field-label">Nome completo</label>
+      <div class="field">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#6c7a93" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.8-4 3.8-6 7.5-6s6.7 2 7.5 6"/></svg>
+        <input type="text" id="fullname" autocomplete="name" autocapitalize="words" placeholder="Digite seu nome completo" maxlength="80" required>
       </div>
 
-      <label for="email" class="field-label">Seu e-mail</label>
+      <label for="regemail" class="field-label">Seu e-mail</label>
       <div class="field">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#6c7a93" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="2.8" y="5" width="18.4" height="14" rx="2"/><path d="M3.2 6.6 12 13l8.8-6.4"/></svg>
-        <input type="email" id="email" autocomplete="email" inputmode="email" placeholder="Digite seu e-mail" maxlength="254" required>
+        <input type="email" id="regemail" autocomplete="email" inputmode="email" autocapitalize="off" placeholder="Digite seu e-mail" maxlength="254" required>
       </div>
 
+      <button id="regsave" class="btn-primary" type="button"><span id="reglabel">Continuar</span></button>
+      <button id="regcancel" class="btn-ghost" type="button" hidden>Voltar</button>
+
+      <p class="notice small">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
+        <span>Usamos seu nome e e-mail só para o organizador identificar quem usa a internet a bordo e para emitir o Pix. Ficam visíveis apenas à organização e são apagados ao fim da finalidade. Sem criar conta nem senha.</span>
+      </p>
+    </div>
+
+    <!-- 2. Aguardando liberação (tela central). O botão de Pix fica abaixo, sem pressionar quem já pagou ao organizador. -->
+    <div id="wait" class="panel center" hidden>
+      <div class="spinner slow" aria-hidden="true"></div>
+      <h2 class="title">Aguardando liberação...</h2>
+      <p class="subtitle">Seu cadastro foi recebido. Se você já pagou R$ 20 ao organizador, aguarde a liberação — não pague de novo. Se ainda não pagou, use o Pix abaixo.</p>
+
+      <div class="who" id="who">
+        <span class="who-text" id="whotext"></span>
+        <button id="editreg" class="link-btn" type="button">Corrigir meus dados</button>
+      </div>
+      <div id="waitstate" class="state" role="status">Aguardando o organizador…</div>
+
+      <div class="price-box" id="pricebox">
+        <span class="price-amount" id="pricea">R$ 25,00</span>
+        <span class="price-sep" aria-hidden="true"></span>
+        <span class="price-time"><span id="pricetext">toda a viagem</span></span>
+      </div>
       <button id="pay" class="btn-primary" type="button">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">
           <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 5.2) rotate(45)"/>
@@ -51,38 +77,38 @@
           <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 18.8) rotate(45)"/>
           <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(5.2 12) rotate(45)"/>
         </svg>
-        <span id="paylabel">Gerar Pix</span>
+        <span id="paylabel">Pagar R$ 25,00 com Pix</span>
       </button>
 
       <ul class="benefits">
         <li>
           <span class="ico"><svg viewBox="0 0 64 52" width="30" height="24" fill="none" stroke="#1565d8" stroke-width="7" stroke-linecap="round" aria-hidden="true"><path d="M6 18a36 36 0 0 1 52 0"/><path d="M16 29a22 22 0 0 1 32 0"/><circle cx="32" cy="43" r="3.4" fill="#1565d8" stroke="none"/></svg></span>
-          <span class="ben-text">Internet<br>estável</span>
+          <span class="ben-text">Sem limite<br>de horas</span>
         </li>
         <li>
           <span class="ico"><svg viewBox="0 0 24 24" width="26" height="26" fill="#1565d8" aria-hidden="true"><path d="M13.6 2 5.5 13.2h5.4L9.8 22l8.7-11.6h-5.6z"/></svg></span>
-          <span class="ben-text">Ativação<br>imediata</span>
+          <span class="ben-text">Liberação<br>automática</span>
         </li>
         <li>
-          <span class="ico"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#1565d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg></span>
-          <span class="ben-text" id="benhours">5 horas<br>de acesso</span>
+          <span class="ico"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#1565d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17h16M6 17V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v9M8 20h.01M16 20h.01"/></svg></span>
+          <span class="ben-text">Toda a<br>viagem</span>
         </li>
       </ul>
 
-      <p class="notice">
-        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Após o pagamento, o acesso é liberado automaticamente neste aparelho.</span>
+      <p class="notice small" id="iostip">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
+        <span><strong>iPhone:</strong> para não perder a liberação, use Ajustes › Wi-Fi › ⓘ ao lado de Wifi a Bordo › Endereço Wi-Fi Privado › <strong>Fixo</strong>. Se esta janela fechar, abra o Safari e acesse <strong>http://example.com</strong> para voltar aqui.</span>
       </p>
     </div>
 
-    <!-- 2. Pix gerado / aguardando pagamento -->
+    <!-- 3. Pix gerado / aguardando pagamento -->
     <div id="pix" class="panel" hidden>
-      <h2 class="title">Seu Pix de R$ 5,00</h2>
-      <p class="subtitle">Pague e a internet libera sozinha</p>
+      <h2 class="title" id="pixtitle">Seu Pix de R$ 25,00</h2>
+      <p class="subtitle">Internet para toda a viagem — liberação automática</p>
       <ol class="steps">
         <li><span class="n">1</span><span><strong>Copie</strong> o código Pix abaixo.</span></li>
         <li><span class="n">2</span><span><strong>Abra o app do seu banco</strong> e use Pix &gt; Copia e Cola.</span></li>
-        <li><span class="n">3</span><span><strong>Volte aqui:</strong> a liberação leva até ~30 segundos.</span></li>
+        <li><span class="n">3</span><span><strong>Pronto.</strong> Pode fechar esta janela: o pagamento fica registrado e a internet é liberada sozinha neste aparelho.</span></li>
       </ol>
       <button id="copy" class="btn-primary" type="button">Copiar código Pix</button>
       <div id="copytext" class="codebox" tabindex="0" aria-label="Código Pix Copia e Cola"></div>
@@ -93,73 +119,46 @@
       <div id="status" class="state" role="status">Aguardando confirmação do pagamento…</div>
       <p class="timer">Código válido por <strong id="timer">--:--</strong></p>
       <button id="recheck" class="btn-ghost" type="button">Já paguei — verificar agora</button>
+      <button id="backwait" class="btn-ghost" type="button">Voltar</button>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Se o app do banco disser que está sem internet, desligue o Wi-Fi por alguns segundos (ou use os dados móveis), pague e depois reconecte ao Wifi a Bordo.</span>
+        <span>Se o app do banco disser que está sem internet, desligue o Wi-Fi por alguns segundos (ou use os dados móveis), pague e depois reconecte ao Wifi a Bordo. Você não paga duas vezes: ao voltar, o mesmo Pix aparece aqui.</span>
       </p>
     </div>
 
-    <!-- 3. Pago, aguardando o roteador -->
+    <!-- 4. Autorizado, aplicando no roteador / aguardando a sessão autenticada -->
     <div id="paid" class="panel center" hidden>
       <div class="spinner" aria-hidden="true"></div>
-      <h2 class="title">Pagamento confirmado!</h2>
-      <p class="subtitle">Estamos liberando seu acesso. Isso leva até ~30 segundos.</p>
-      <div id="paidhint" class="state" hidden>Está demorando mais que o normal. Mantenha o Wi-Fi ligado; se não liberar em alguns minutos, desligue e ligue o Wi-Fi do celular.</div>
+      <h2 class="title" id="paidtitle">Liberando seu acesso…</h2>
+      <p class="subtitle" id="paidtext">Seu acesso foi autorizado. Estamos ativando a internet neste aparelho (até ~30 segundos).</p>
+      <div id="paidhint" class="state" hidden>Está demorando mais que o normal. Desligue e ligue o Wi-Fi do celular e volte à rede Wifi a Bordo. Você não precisa pagar de novo.</div>
     </div>
 
-    <!-- 4. Liberado -->
+    <!-- 5. Liberado (o roteador confirmou a sessão autenticada) -->
     <div id="done" class="panel center" hidden>
       <svg class="big-ok" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#dff5ea"/><circle cx="32" cy="32" r="30" fill="none" stroke="#1f9d62" stroke-width="3"/><path d="M19 33.5 28 42l17-19" fill="none" stroke="#1f9d62" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h2 class="title">Internet liberada!</h2>
-      <p class="subtitle" id="donetext">Seu aparelho foi autorizado. Aproveite suas 5 horas.</p>
+      <h2 class="title">Acesso liberado! Aproveite a viagem</h2>
+      <p class="subtitle">Acesso ilimitado durante toda a viagem neste aparelho. Pode fechar esta janela e usar a internet normalmente.</p>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Se ainda aparecer esta tela, desligue e ligue o Wi-Fi do celular.</span>
+        <span>Se desligar o Wi-Fi, ao voltar à rede Wifi a Bordo o acesso continua — sem pagar de novo.</span>
       </p>
     </div>
 
-    <!-- 4b. Tempo de internet esgotado (confirmado pelo MikroTik via backend) -->
-    <div id="expired" class="panel center" hidden>
-      <svg class="big-clock" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#fff1dc"/><circle cx="32" cy="32" r="30" fill="none" stroke="#e08a00" stroke-width="3"/><path d="M32 16v17l11 7" fill="none" stroke="#e08a00" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h2 class="title">Seu tempo de internet acabou</h2>
-      <p class="subtitle" id="expsub">Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.</p>
-      <p class="offer-box"><span class="offer-price" id="offerprice">R$ 5,00</span><span class="offer-dash" aria-hidden="true">—</span><span class="offer-time" id="offertime">5 horas</span></p>
-      <button id="buymore" class="btn-primary" type="button">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">
-          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 5.2) rotate(45)"/>
-          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(18.8 12) rotate(45)"/>
-          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 18.8) rotate(45)"/>
-          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(5.2 12) rotate(45)"/>
-        </svg>
-        <span id="buymorelabel">Comprar mais 5 horas</span>
-      </button>
-      <p class="notice small">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>O pagamento é por Pix e as novas horas são liberadas automaticamente neste aparelho.</span>
-      </p>
-    </div>
-
-    <!-- 4c. Verificando o estado (portal reaberto por quem já teve crédito) -->
-    <div id="loading" class="panel center" hidden>
-      <div class="spinner" aria-hidden="true"></div>
-      <p id="loadingtext" class="subtitle">Verificando seu acesso…</p>
-    </div>
-
-    <!-- 5. Expirou / falhou -->
+    <!-- 6. Acesso encerrado / bloqueado (nunca oferece cobrança que não poderia ser entregue) -->
     <div id="ended" class="panel center" hidden>
-      <h2 id="endedtitle" class="title">Pix expirado</h2>
-      <p id="endedtext" class="subtitle">Este código não vale mais. Gere um novo para continuar.</p>
-      <button id="again" class="btn-primary" type="button">Gerar novo Pix</button>
+      <h2 id="endedtitle" class="title">Acesso encerrado</h2>
+      <p id="endedtext" class="subtitle">O acesso deste aparelho foi encerrado pelo organizador.</p>
     </div>
 
-    <!-- 6. Aberto fora da rede -->
+    <!-- 7. Aberto fora da rede -->
     <div id="invalid" class="panel center" hidden>
       <svg class="big-wifi" viewBox="0 0 64 52" width="56" height="46" fill="none" stroke="#1565d8" stroke-width="7" stroke-linecap="round" aria-hidden="true"><path d="M6 18a36 36 0 0 1 52 0"/><path d="M16 29a22 22 0 0 1 32 0"/><circle cx="32" cy="43" r="3.4" fill="#1565d8" stroke="none"/></svg>
       <h2 class="title">Conecte-se à rede Wifi a Bordo</h2>
-            <p class="subtitle">Conecte-se à rede <strong>Wifi a Bordo</strong> e abra a tela de login da rede. O acesso é liberado para o aparelho que o roteador identifica.</p>
+      <p class="subtitle">Conecte-se à rede <strong>Wifi a Bordo</strong> e abra a tela de login da rede. O acesso é liberado para o aparelho que o roteador identifica.</p>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo. Quando o pagamento for aprovado, a internet será liberada automaticamente.</span>
+        <span>Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo ou abra http://example.com no navegador. Quando o pagamento for aprovado, a internet será liberada automaticamente.</span>
       </p>
     </div>
 
@@ -170,12 +169,12 @@
     <h2 class="info-title">Como funciona</h2>
     <ol class="info-steps">
       <li><span class="n">1</span><span><strong>Conecte-se à rede Wifi a Bordo.</strong> Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo.</span></li>
-      <li><span class="n">2</span><span id="infopay"><strong>Pague R$ 5,00 via Pix</strong> e tenha 5 horas de acesso, no celular ou no notebook.</span></li>
-      <li><span class="n">3</span><span><strong>Internet liberada automaticamente</strong> assim que o pagamento for aprovado, no aparelho que está usando esta página.</span></li>
+      <li><span class="n">2</span><span><strong>Informe nome completo e e-mail.</strong> Quem já pagou R$ 20 ao organizador só aguarda a liberação.</span></li>
+      <li><span class="n">3</span><span id="infopay"><strong>Ou pague R$ 25,00 via Pix</strong> e a internet é liberada automaticamente, sem limite de horas, durante toda a viagem.</span></li>
     </ol>
   </aside>
 </main>
-<noscript><p class="noscript">Ative o JavaScript para pagar e liberar a internet.</p></noscript>
+<noscript><p class="noscript">Ative o JavaScript para continuar.</p></noscript>
 <script src="/app.js"></script>
 </body>
 </html>

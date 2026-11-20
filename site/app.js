@@ -1,63 +1,49 @@
 (() => {
   'use strict';
+  // Portal do passageiro. TODO estado vem do servidor (função "passenger" para o aparelho, "payment-status" para o
+  // Pix); nada depende de armazenamento no navegador. Fechar a janela do portal cativo para pagar no app do banco, reabrir o portal,
+  // trocar de navegador ou recarregar não perde o cadastro, o Pix nem a liberação, e nunca gera segunda cobrança
+  // (o servidor devolve o MESMO Pix pendente do aparelho).
   const CFG = window.HOTSPOT_CONFIG || {};
   const API = String(CFG.functionsUrl || '').replace(/\/+$/, '');
   const params = new URLSearchParams(location.search);
   const mac = (params.get('mac') || '').trim().toUpperCase();
   const MAC_OK = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac);
-  // Dica do próprio Hotspot (login.html repassa $(error)): o login por MAC foi recusado por limite de tempo.
-  const LIMIT_HINT = /uptime|limit/i.test(params.get('err') || '') || params.get('exp') === '1'; // exp=1: o roteador informou, para este MAC, que o tempo acabou
-  const KEY = 'wifi-a-bordo:v2';
-  const POLL_MS = 4000;     // acompanhando um Pix
-  const WATCH_MS = 30000;   // acompanhando o crédito depois de liberado (portal aberto)
+  // Dica do Hotspot (login.html): crédito de HORAS antigo esgotado. Só muda o texto da espera.
+  const LIMIT_HINT = /uptime|limit/i.test(params.get('err') || '') || params.get('exp') === '1';
   const $ = (id) => document.getElementById(id);
-  const PANELS = ['buy', 'pix', 'paid', 'done', 'ended', 'expired', 'loading', 'invalid'];
+  const PANELS = ['loading', 'reg', 'wait', 'pix', 'paid', 'done', 'ended', 'invalid'];
+  const WAIT_MS = 5000;     // tela de espera: acompanha a liberação manual / Pix
+  const FAST_MS = 3000;     // Pix aberto ou liberando
+  const DONE_MS = 30000;    // já liberado (portal aberto): acompanha revogação/bloqueio
 
-  let order = null;          // {order_id, read_token, qr_code, qr_code_base64, deadline, released}
-  let pollTimer = null;
-  let tickTimer = null;
-  let checking = false;
-  let failures = 0;
-  let paidSince = 0;
-
-  // ---- armazenamento (pode falhar em navegadores de portal cativo) ----------
-  function store(name, value) {
-    try { if (value == null) localStorage.removeItem(name); else localStorage.setItem(name, value); } catch (_) { /* ignora */ }
-  }
-  function load(name) { try { return localStorage.getItem(name); } catch (_) { return null; } }
-  function saveOrder() { store(KEY, order ? JSON.stringify({ mac, ...order }) : null); }
-  function recoverOrder() {
-    try {
-      const o = JSON.parse(load(KEY) || 'null');
-      if (o && o.mac === mac && o.order_id && o.read_token) return o;
-    } catch (_) { /* ignora */ }
-    return null;
-  }
-  const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
+  let state = null;          // último estado do servidor
+  let order = null;          // Pix em memória: {order_id, read_token, qr_code, qr_code_base64, deadline}
+  let timer = null; let tick = null; let busy = false; let failures = 0; let provSince = 0;
+  let unknownSince = 0;
+  let editing = false;
+  let price = 'R$ 25,00';
 
   // ---- interface -----------------------------------------------------------
-  function show(name) {
-    PANELS.forEach((p) => { $(p).hidden = p !== name; });
-    $('feedback').hidden = true;
-  }
+  function show(name) { PANELS.forEach((p) => { $(p).hidden = p !== name; }); $('feedback').hidden = true; }
+  const current = () => PANELS.find((p) => !$(p).hidden);
   function feedback(text) { $('feedback').textContent = text; $('feedback').hidden = false; }
-  function setStatus(text, kind) {
-    const el = $('status');
-    el.textContent = text;
-    el.className = 'state' + (kind ? ' ' + kind : '');
+  function setText(id, text, kind) { const el = $(id); el.textContent = text; el.className = 'state' + (kind ? ' ' + kind : ''); }
+  function schedule(ms) { clearTimeout(timer); timer = setTimeout(refresh, ms); }
+  const money = (c) => 'R$ ' + (Number(c) / 100).toFixed(2).replace('.', ',');
+  const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '') && (e || '').length <= 254;
+  const cleanName = (n) => String(n || '').replace(/\s+/g, ' ').trim();
+  function validName(n) {
+    if (n.length < 5 || n.length > 80) return false;
+    try { if (!/^\p{L}[\p{L}\p{M}'’.\- ]*$/u.test(n)) return false; } catch (_) { if (/[0-9<>@#$%^&*=+|\\/]/.test(n)) return false; }
+    const w = n.split(' ');
+    return w.length >= 2 && w[0].length >= 2 && w[w.length - 1].length >= 2;
   }
-  function stopTimers() { clearTimeout(pollTimer); clearInterval(tickTimer); pollTimer = tickTimer = null; }
   function fmt(sec) {
     const s = Math.max(0, Math.floor(sec));
     return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
   }
-  function tick() {
-    if (!order || !order.deadline) { $('timer').textContent = '--:--'; return; }
-    $('timer').textContent = fmt((order.deadline - Date.now()) / 1000);
-  }
-  function setDeadline(secondsLeft) {
-    if (order && typeof secondsLeft === 'number') { order.deadline = Date.now() + secondsLeft * 1000; saveOrder(); }
-  }
+  function tickTimer() { $('timer').textContent = order && order.deadline ? fmt((order.deadline - Date.now()) / 1000) : '--:--'; }
 
   // ---- rede ----------------------------------------------------------------
   async function api(path, opts) {
@@ -66,7 +52,7 @@
     try {
       const res = await fetch(API + '/' + path, { ...(opts || {}), signal: ctl.signal, cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const e = new Error(data.error || 'Falha na conexão.'); e.status = res.status; throw e; }
+      if (!res.ok) { const e = new Error(data.error || 'Falha na conexão.'); e.status = res.status; e.data = data; throw e; }
       return data;
     } catch (e) {
       if (e.status) throw e;
@@ -74,216 +60,167 @@
       n.network = true; throw n;
     } finally { clearTimeout(to); }
   }
+  const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-  // ---- fluxo ---------------------------------------------------------------
+  // ---- telas ----------------------------------------------------------------
+  function enterReg(edit) {
+    editing = Boolean(edit);
+    show('reg');
+    $('regcancel').hidden = !editing;
+    $('regsub').textContent = editing ? 'Corrija seu nome completo e e-mail.' : 'Informe seu nome completo e e-mail.';
+  }
+  function enterWait(s) {
+    if (current() !== 'wait') show('wait');
+    $('whotext').textContent = s.name_hint ? s.name_hint + ' · ' + (s.email_hint || '') : 'Cadastro recebido';
+    let msg = 'Aguardando o organizador conferir seu cadastro…';
+    if (s.pix_pending) msg = 'Você tem um Pix gerado e ainda não pago. Toque no botão para ver o mesmo código (não gera outro).';
+    else if (LIMIT_HINT) msg = 'Seu tempo de internet anterior acabou. Aguarde a liberação ou use o Pix abaixo.';
+    if (!s.router_online) msg += ' (O roteador está sem contato com o servidor agora; a liberação acontece assim que ele voltar.)';
+    setText('waitstate', msg);
+    $('paylabel').textContent = s.pix_pending ? 'Ver meu Pix pendente' : 'Pagar ' + price + ' com Pix';
+    $('pay').disabled = false;
+  }
   function enterPix() {
     show('pix');
+    $('pixtitle').textContent = 'Seu Pix de ' + price;
     $('copytext').textContent = order.qr_code || '';
     $('copy').textContent = 'Copiar código Pix';
     const img = $('qr');
     if (order.qr_code_base64) { img.src = 'data:image/png;base64,' + order.qr_code_base64; img.hidden = false; } else { img.hidden = true; }
-    setStatus('Aguardando confirmação do pagamento…');
-    tick();
-    clearInterval(tickTimer); tickTimer = setInterval(tick, 1000);
-    schedule(0);
+    setText('status', 'Aguardando confirmação do pagamento…');
+    tickTimer(); clearInterval(tick); tick = setInterval(tickTimer, 1000);
   }
-  function enterPaid() {
-    if (!paidSince) paidSince = Date.now();
-    show('paid');
-    $('paidhint').hidden = Date.now() - paidSince < 90000;
-    clearInterval(tickTimer); tickTimer = null;
+  function enterProvisioning(s, paidByPix) {
+    if (!provSince) provSince = Date.now();
+    if (current() !== 'paid') show('paid');
+    clearInterval(tick);
+    $('paidtitle').textContent = paidByPix ? 'Pagamento confirmado!' : 'Liberando seu acesso…';
+    $('paidtext').textContent = s && !s.router_online
+      ? 'Seu acesso foi autorizado. O roteador está sem contato com o servidor agora; a internet é ativada assim que ele voltar.'
+      : 'Seu acesso foi autorizado. Estamos ativando a internet neste aparelho (até ~30 segundos).';
+    $('paidhint').hidden = Date.now() - provSince < 75000 && !(s && s.stuck && Date.now() - provSince > 40000);
   }
-  // Liberado: o pedido continua guardado (só o necessário para reconhecer este aparelho depois) e o
-  // portal, se continuar aberto, acompanha o crédito para avisar quando o tempo acabar.
-  function enterDone() {
-    stopTimers(); show('done');
-    if (order && !order.released) { order.released = true; saveOrder(); }
-    schedule(WATCH_MS);
-  }
-  function enterLoading() { show('loading'); $('loadingtext').textContent = 'Verificando seu acesso…'; }
-  // Tempo esgotado: confirmado pelo MikroTik (via backend) ou pelo próprio Hotspot. Nunca pelo navegador.
-  function enterExpired() {
-    stopTimers(); show('expired');
-    $('buymore').disabled = false; $('buymorelabel').textContent = expiredLabel();
-  }
-  function enterEnded(title, text) {
-    stopTimers(); show('ended');
-    $('endedtitle').textContent = title; $('endedtext').textContent = text;
-    order = null; saveOrder();
-  }
-  function schedule(ms) { clearTimeout(pollTimer); pollTimer = setTimeout(check, ms); }
+  function enterDone() { clearInterval(tick); order = null; show('done'); }
+  function enterEnded(title, text) { clearInterval(tick); order = null; show('ended'); $('endedtitle').textContent = title; $('endedtext').textContent = text; }
 
-  async function check() {
-    if (!order || checking) return;
-    checking = true;
+  // ---- ciclo de estado --------------------------------------------------------
+  async function refresh() {
+    if (busy) return;
+    busy = true;
     try {
-      const s = await api(`payment-status?id=${encodeURIComponent(order.order_id)}&token=${encodeURIComponent(order.read_token)}`);
-      failures = 0;
-      if (s.internet_ready) {
-        if (s.device_credit === 'exhausted') { enterExpired(); return; }
-        enterDone(); return;
+      // Pix aberto: confere o pedido (o servidor reconcilia com o Mercado Pago se o webhook atrasar).
+      if (order && current() === 'pix') {
+        try {
+          const p = await api('payment-status?id=' + encodeURIComponent(order.order_id) + '&token=' + encodeURIComponent(order.read_token));
+          if (typeof p.seconds_left === 'number') order.deadline = Date.now() + p.seconds_left * 1000;
+          if (p.status === 'expired' || p.status === 'failed') { order = null; feedback('Este Pix não vale mais. Gere um novo quando quiser.'); }
+          else if (p.status === 'refunded') { order = null; }
+        } catch (e) { if (e.status === 404) order = null; }
       }
-      if (s.status === 'paid') { enterPaid(); }
-      else if (s.status === 'pending') {
-        if (typeof s.seconds_left === 'number') setDeadline(s.seconds_left);
-        if ($('pix').hidden) show('pix');
-        setStatus('Aguardando confirmação do pagamento…');
-      } else if (s.status === 'expired') { enterEnded('Pix expirado', 'Este código não vale mais. Gere um novo para continuar.'); return; }
-      else if (s.status === 'failed') { enterEnded('Pagamento não concluído', 'O Pix não foi gerado ou foi recusado. Tente gerar um novo.'); return; }
-      else if (s.status === 'refunded') { enterEnded('Pagamento estornado', 'Este pagamento foi devolvido. Procure o responsável pela internet.'); return; }
-      schedule(POLL_MS);
+      const s = await api('passenger?mac=' + encodeURIComponent(mac));
+      state = s; failures = 0;
+      route(s);
     } catch (e) {
       failures += 1;
-      if (e.status === 404) {                       // pedido não existe mais: trata como aparelho novo
-        order = null; saveOrder(); stopTimers();
-        if (LIMIT_HINT) enterExpired(); else show('buy');
-        return;
-      }
-      if (!$('loading').hidden) {                   // abrindo o portal e sem falar com o servidor
-        if (LIMIT_HINT) { enterExpired(); return; } // o Hotspot já informou que o limite foi atingido
-        $('loadingtext').textContent = 'Não consegui verificar seu acesso agora. Tentando de novo…';
-      } else if (failures >= 3) {
-        const msg = 'Não consegui falar com o servidor. Confira se continua no Wifi a Bordo; vou tentar de novo.';
-        if (!$('pix').hidden) setStatus(msg, 'error'); else if ($('done').hidden) feedback(msg);
-      }
-      schedule(Math.min(POLL_MS * (1 + failures), 20000));
-    } finally { checking = false; }
+      if (current() === 'loading') $('loadingtext').textContent = 'Não consegui verificar seu acesso agora. Tentando de novo…';
+      else if (failures >= 3 && current() !== 'done') feedback('Não consegui falar com o servidor. Confira se continua no Wifi a Bordo; vou tentar de novo.');
+      schedule(Math.min(FAST_MS * (1 + failures), 20000));
+    } finally { busy = false; }
   }
 
-  // ---- planos --------------------------------------------------------------
-  // Preço e duração vêm do servidor (função "plans"); o navegador só informa QUAL plano foi escolhido e o
-  // servidor decide o valor. Com um único plano ativo a tela fica como sempre foi (sem seleção).
-  let plans = [];
-  let selectedPlan = null;
-  const money = (cents) => 'R$ ' + (Number(cents) / 100).toFixed(2).replace('.', ',');
-  function duration(seconds) {
-    const s = Math.round(Number(seconds) || 0);
-    if (s < 3600) { const m = Math.max(1, Math.round(s / 60)); return m + (m === 1 ? ' minuto' : ' minutos'); }
-    const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60);
-    if (m === 0) return h + (h === 1 ? ' hora' : ' horas');
-    return h + 'h' + String(m).padStart(2, '0');
-  }
-  const currentPlan = () => selectedPlan || plans.find((p) => p.is_default) || plans[0] || null;
-  const expiredLabel = () => (plans.length > 1 ? 'Escolher plano' : 'Comprar mais ' + duration((currentPlan() || {}).grant_seconds || 18000)); // 18000: só o texto padrão antes de a lista de planos carregar
-  function applyPlanTexts() {
-    const p = currentPlan(); if (!p) return;
-    const d = duration(p.grant_seconds); const many = plans.length > 1;
-    $('plansub').textContent = many ? 'Escolha seu acesso' : 'Pague via Pix e navegue por ' + d;
-    $('pricea').textContent = money(p.price_cents); $('pricetext').textContent = d;
-    const ben = $('benhours'); ben.textContent = d; ben.appendChild(document.createElement('br')); ben.appendChild(document.createTextNode('de acesso'));
-    $('donetext').textContent = 'Seu aparelho foi autorizado. ' + (/^1 |h\d\d$/.test(d) ? 'Aproveite seu acesso de ' : 'Aproveite suas ') + d + '.';
-    $('expsub').textContent = many ? 'Suas horas de acesso terminaram. Para continuar navegando, escolha um plano.'
-      : 'Suas horas de acesso terminaram. Para continuar navegando, adquira mais ' + d + '.';
-    const ip = $('infopay'); ip.textContent = ''; const st = document.createElement('strong');
-    st.textContent = many ? 'Escolha o plano e pague via Pix' : 'Pague ' + money(p.price_cents) + ' via Pix';
-    ip.append(st, document.createTextNode(many ? ', no celular ou no notebook.' : ' e tenha ' + d + ' de acesso, no celular ou no notebook.'));
-    $('offerprice').parentElement.hidden = many;
-    $('offerprice').textContent = money(p.price_cents); $('offertime').textContent = d;
-    if (!$('expired').hidden) $('buymorelabel').textContent = expiredLabel();
-  }
-  function renderPlans() {
-    const box = $('plans'); box.textContent = '';
-    if (plans.length < 2) { box.hidden = true; $('pricebox').hidden = false; applyPlanTexts(); return; }
-    $('pricebox').hidden = true; box.hidden = false;
-    selectedPlan = currentPlan();
-    plans.forEach((p) => {
-      const label = document.createElement('label'); label.className = 'plan' + (p.id === selectedPlan.id ? ' on' : '');
-      const input = document.createElement('input'); input.type = 'radio'; input.name = 'plan'; input.value = p.id; input.checked = p.id === selectedPlan.id;
-      input.addEventListener('change', () => {
-        selectedPlan = p;
-        box.querySelectorAll('.plan').forEach((el) => el.classList.toggle('on', el === label));
-        applyPlanTexts();
-      });
-      const main = document.createElement('span'); main.className = 'plan-main';
-      const name = document.createElement('span'); name.className = 'plan-name'; name.textContent = p.name;
-      const sub = document.createElement('span'); sub.className = 'plan-desc'; const dtxt = duration(p.grant_seconds); sub.textContent = (p.name.toLowerCase().includes(dtxt.toLowerCase()) ? '' : dtxt) + (p.description ? (p.name.toLowerCase().includes(dtxt.toLowerCase()) ? '' : ' · ') + p.description : '');
-      if (!sub.textContent) sub.hidden = true;
-      main.append(name, sub);
-      const price = document.createElement('span'); price.className = 'plan-price'; price.textContent = money(p.price_cents);
-      label.append(input, main, price);
-      if (p.highlight) { const b = document.createElement('span'); b.className = 'plan-badge'; b.textContent = 'Mais popular'; label.appendChild(b); }
-      box.appendChild(label);
-    });
-    applyPlanTexts();
-  }
-  async function loadPlans() {
-    try {
-      const r = await api('plans');
-      if (Array.isArray(r.plans) && r.plans.length) {
-        plans = r.plans;
-        selectedPlan = selectedPlan ? (plans.find((p) => p.id === selectedPlan.id) || null) : null;
-        renderPlans();
-      }
-    } catch (_) { /* sem a lista, valem os textos padrão e o servidor usa o plano padrão */ }
-  }
-
-  // fromExpired: o botão "Comprar mais ..." inicia o MESMO fluxo real de Pix (o servidor reaproveita
-  // o Pix pendente do aparelho, então não há cobrança duplicada).
-  async function createPix(fromExpired) {
-    let email = $('email').value.trim();
-    if (fromExpired) {
-      email = (load(KEY + ':email') || '').trim();
-      if (!validEmail(email)) { show('buy'); $('email').focus(); feedback('Informe seu e-mail para gerar o novo Pix.'); return; }
-      $('email').value = email;
+  function route(s) {
+    if (s.access === 'blocked') { enterEnded('Aparelho bloqueado', 'Este aparelho foi bloqueado pelo organizador da viagem e não pode usar a internet. Fale com o organizador.'); return schedule(DONE_MS); }
+    if (s.access === 'revoked') { enterEnded('Acesso encerrado', 'O acesso deste aparelho foi encerrado pelo organizador da viagem. Nenhuma cobrança nova é feita aqui; fale com o organizador.'); return schedule(DONE_MS); }
+    if (s.access === 'active' && s.internet) { enterDone(); return schedule(DONE_MS); }
+    if (s.access === 'active' || s.access === 'provisioning') { enterProvisioning(s, Boolean(order)); return schedule(FAST_MS); }
+    provSince = 0;
+    if (!s.known) {
+      // O roteador ainda não informou este aparelho (acabou de conectar): espera alguns ciclos antes do cadastro.
+      if (!unknownSince) unknownSince = Date.now();
+      if (Date.now() - unknownSince < 45000 && current() === 'loading') { $('loadingtext').textContent = 'Identificando seu aparelho na rede…'; return schedule(FAST_MS); }
     }
-    if (!validEmail(email)) { feedback('Informe um e-mail válido.'); $('email').focus(); return; }
-    store(KEY + ':email', email);
-    const btn = fromExpired ? $('buymore') : $('pay');
-    const label = fromExpired ? $('buymorelabel') : $('paylabel');
-    const idle = fromExpired ? expiredLabel() : 'Gerar Pix';
-    btn.disabled = true; label.textContent = 'Gerando Pix…';
+    if (editing && current() === 'reg') return schedule(WAIT_MS);
+    if (!s.registered) { if (current() !== 'reg') enterReg(false); return schedule(WAIT_MS); }
+    if (order && current() === 'pix') return schedule(FAST_MS);
+    if (s.pix_pending && current() === 'loading') { openPix(true); return undefined; } // reabriu o portal com Pix em aberto
+    enterWait(s);
+    return schedule(WAIT_MS);
+  }
+
+  // ---- ações -------------------------------------------------------------------
+  async function saveReg() {
+    const name = cleanName($('fullname').value);
+    const email = $('regemail').value.trim().toLowerCase();
+    if (!validName(name)) { feedback('Informe seu nome completo (nome e sobrenome), só com letras.'); $('fullname').focus(); return; }
+    if (!validEmail(email)) { feedback('Informe um e-mail válido.'); $('regemail').focus(); return; }
+    $('regsave').disabled = true; $('reglabel').textContent = 'Salvando…';
     try {
-      const r = await api('create-payment', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(currentPlan() ? { mac, email, plan_id: currentPlan().id } : { mac, email }),
-      });
-      order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code || '', qr_code_base64: r.qr_code_base64 || '', deadline: 0 };
-      if (typeof r.seconds_left === 'number') order.deadline = Date.now() + r.seconds_left * 1000;
-      paidSince = 0; failures = 0;
-      saveOrder();
-      if (r.status === 'paid') { enterPaid(); schedule(0); } else enterPix();
+      await post('passenger', { mac, name, email });
+      editing = false;
+      show('loading'); $('loadingtext').textContent = 'Cadastro recebido…';
+      await refresh();
     } catch (e) {
       feedback(e.message);
-      if (e.status === 409 && /plano/i.test(e.message)) loadPlans(); // plano desativado/alterado: recarrega a lista
-    } finally { btn.disabled = false; label.textContent = idle; }
+    } finally { $('regsave').disabled = false; $('reglabel').textContent = 'Continuar'; }
   }
 
-  async function copyCode() {
-    const text = order && order.qr_code;
-    if (!text) return;
+  async function openPix(silent) {
+    $('pay').disabled = true; $('paylabel').textContent = 'Gerando Pix…';
     try {
-      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); $('copy').textContent = 'Código copiado ✓'; return; }
-    } catch (_) { /* tenta o método antigo */ }
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.setAttribute('readonly', ''); ta.className = 'offscreen';
-      ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
-      const ok = document.execCommand('copy'); document.body.removeChild(ta);
-      if (ok) { $('copy').textContent = 'Código copiado ✓'; return; }
-    } catch (_) { /* cai para seleção manual */ }
-    const range = document.createRange(); range.selectNodeContents($('copytext'));
-    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
-    $('copy').textContent = 'Código selecionado — toque e segure para copiar';
+      const r = await post('create-payment', { mac });
+      if (r.status === 'paid') { order = { order_id: r.order_id, read_token: r.read_token }; enterProvisioning(state, true); schedule(FAST_MS); return; }
+      order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code, qr_code_base64: r.qr_code_base64,
+        deadline: typeof r.seconds_left === 'number' ? Date.now() + r.seconds_left * 1000 : null };
+      enterPix(); schedule(FAST_MS);
+    } catch (e) {
+      if (e.data && e.data.registration_required) { enterReg(false); return; }
+      if (e.data && (e.data.already_active || e.data.blocked || e.data.revoked)) { schedule(0); return; }
+      if (!silent) feedback(e.message);
+      if (state) enterWait(state); else show('loading');
+      schedule(e.data && e.data.retry ? FAST_MS : WAIT_MS);
+    } finally { $('pay').disabled = false; if (state) $('paylabel').textContent = state.pix_pending ? 'Ver meu Pix pendente' : 'Pagar ' + price + ' com Pix'; }
   }
 
-  // ---- eventos -------------------------------------------------------------
-  $('pay').addEventListener('click', () => createPix(false));
-  $('buymore').addEventListener('click', () => { if (plans.length > 1) { show('buy'); return; } createPix(true); });
-  $('copy').addEventListener('click', copyCode);
-  $('recheck').addEventListener('click', () => { setStatus('Verificando…'); schedule(0); });
-  $('again').addEventListener('click', () => { show('buy'); $('email').focus(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && order) schedule(0); });
-  window.addEventListener('online', () => { if (order) schedule(0); });
-  window.addEventListener('focus', () => { if (order) schedule(0); });
+  async function copyPix() {
+    const text = (order && order.qr_code) || '';
+    let ok = false;
+    try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; } } catch (_) { ok = false; }
+    if (!ok) {
+      try {
+        const r = document.createRange(); r.selectNodeContents($('copytext'));
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        ok = document.execCommand('copy');
+      } catch (_) { ok = false; }
+    }
+    $('copy').textContent = ok ? 'Código copiado!' : 'Selecione e copie o código abaixo';
+  }
 
-  // ---- início --------------------------------------------------------------
-  if (!MAC_OK || !API || API.includes('SEU-PROJETO')) { show('invalid'); return; }
-  $('email').value = load(KEY + ':email') || '';
-  loadPlans();                                                         // planos ativos (não bloqueia a tela)
-  order = recoverOrder();
-  if (order && order.released) { enterLoading(); schedule(0); }       // já teve crédito: descobre o estado atual
-  else if (order) { show('pix'); enterPix(); }                         // Pix em andamento
-  else if (LIMIT_HINT) { enterExpired(); }                             // o Hotspot informou limite atingido
-  else { show('buy'); }                                                // aparelho novo
+  async function loadPrice() {
+    try {
+      const r = await api('plans');
+      const p = (r.plans || []).find((x) => x.is_default) || (r.plans || [])[0];
+      if (p) {
+        price = money(p.price_cents);
+        $('pricea').textContent = price;
+        $('pricetext').textContent = p.unlimited ? 'toda a viagem' : String(Math.round(p.grant_seconds / 3600)) + ' horas';
+        if (state && current() === 'wait') enterWait(state);
+      }
+    } catch (_) { /* mantém o texto padrão */ }
+  }
+
+  // ---- início ------------------------------------------------------------------
+  $('regsave').addEventListener('click', saveReg);
+  $('regemail').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveReg(); });
+  $('regcancel').addEventListener('click', () => { editing = false; if (state) route(state); });
+  $('editreg').addEventListener('click', () => enterReg(true));
+  $('pay').addEventListener('click', () => openPix(false));
+  $('copy').addEventListener('click', copyPix);
+  $('recheck').addEventListener('click', () => { setText('status', 'Verificando…'); schedule(0); });
+  $('backwait').addEventListener('click', () => { clearInterval(tick); if (state) enterWait(state); schedule(WAIT_MS); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(0); }); // voltou do app do banco
+
+  if (!MAC_OK || !API) { show('invalid'); return; }
+  show('loading');
+  loadPrice();
+  refresh();
 })();

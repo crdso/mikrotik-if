@@ -240,7 +240,7 @@
   const periodArgs = (st) => (st.preset === 'custom' ? { preset: 'custom', start: st.start, end: st.end } : { preset: st.preset });
 
   // ---- layout --------------------------------------------------------------------------
-  const NAV = [['/admin', 'Dashboard', 'dashboard', 'Início'], ['/admin/pagamentos', 'Pagamentos', 'pay', 'Pix'], ['/admin/dispositivos', 'Dispositivos', 'devices', 'Aparelhos'],
+  const NAV = [['/admin', 'Ao vivo', 'devices', 'Ao vivo'], ['/admin/resumo', 'Resumo', 'dashboard', 'Resumo'], ['/admin/pagamentos', 'Pagamentos', 'pay', 'Pix'],
     ['/admin/planos', 'Planos', 'plans', 'Planos'], ['/admin/relatorios', 'Relatórios', 'report', 'Relatórios'], ['/admin/config', 'Configurações', 'config', 'Ajustes']];
   function currentPath() { return location.pathname.replace(/\/+$/, '') || '/admin'; }
   function go(path) { history.pushState({}, '', path); route(); }
@@ -592,16 +592,160 @@
     slot.replaceChildren(out); load();
   }
 
+  // ---- Ao vivo: TODOS os aparelhos vistos pelo MikroTik + cadastro + direito de acesso + ações -----------------------------
+  const LIVE_STATUS = {
+    not_identified: ['Não identificado', 'gray'], waiting: ['Aguardando liberação', 'amber'], pix_pending: ['Pix pendente', 'amber'],
+    provisioning: ['Liberando no roteador…', 'blue'], internet_active: ['Internet ativa', 'green'],
+    authorized_not_authenticated: ['Autorizado, sem sessão', 'red'], authorized_offline: ['Autorizado · desconectado', 'gray'],
+    auth_error: ['Erro ao aplicar', 'red'], revoked: ['Revogado', 'gray'], blocked: ['Bloqueado', 'red'],
+    legacy_active: ['Crédito de horas (antigo)', 'violet'], legacy_exhausted: ['Horas antigas esgotadas', 'gray'],
+  };
+  const SOURCE = { manual_prepaid_20: 'Pré-pago R$ 20 (manual)', pix: 'Pix R$ 25', transfer: 'Transferido' };
+  const LIVE_FILTERS = [['all', 'Todos'], ['online', 'Na rede agora'], ['waiting', 'Aguardando'], ['unidentified', 'Não identificados'],
+    ['active', 'Com acesso'], ['problem', 'Pagou/liberado sem internet'], ['manual', 'Pré-pagos (manual)'], ['pix', 'Pix R$ 25'],
+    ['pix_pending', 'Pix pendente'], ['blocked', 'Bloqueados'], ['revoked', 'Revogados'], ['offline', 'Fora da rede']];
+  const ACTION_TEXT = {
+    grant: (p) => `LIBERAR ACESSO para ${p.full_name || 'aparelho não identificado'} (${p.mac})?\n\nConfirme que esta pessoa está na sua lista de quem já pagou R$ 20. A internet fica liberada sem limite de horas durante a viagem, sem gerar Pix.`,
+    kick: (p) => `DESCONECTAR a sessão de ${p.full_name || p.mac} agora?\n\nÉ temporário: como o acesso continua válido, o aparelho entra de novo sozinho na próxima conexão. Para impedir o acesso use Revogar ou Bloquear.`,
+    revoke: (p) => `REVOGAR o acesso de ${p.full_name || p.mac}?\n\nO direito é cancelado, a sessão cai e o aparelho NÃO volta sozinho (nem por pagamento antigo). O registro do pagamento é mantido.`,
+    block: (p) => `BLOQUEAR o aparelho ${p.mac} (${p.full_name || 'não identificado'})?\n\nNenhum acesso nem Pix para este MAC até desbloquear. Atenção: um iPhone pode trocar de MAC privado e aparecer como outro aparelho.`,
+    unblock: (p) => `DESBLOQUEAR ${p.mac}?\n\n${p.access_state === 'active' ? 'O acesso que ele já tinha volta a valer.' : 'Ele NÃO ganha internet: continua aguardando liberação ou Pix.'}`,
+    reauth: (p) => `REAUTENTICAR ${p.full_name || p.mac}?\n\nO roteador reaplica o acesso e pede um novo login só deste aparelho. Não cria crédito nem cobrança.`,
+  };
+  const DONE_TEXT = {
+    granted: 'Liberação registrada. Comando enviado ao roteador — aguardando aplicação (até ~20 s).', already: 'Este aparelho já tinha acesso ativo (nada duplicado).',
+    queued: 'Comando enviado ao roteador — aguardando aplicação.', revoked: 'Acesso revogado. Comando enviado ao roteador.', blocked: 'Aparelho bloqueado. Comando enviado ao roteador.',
+    unblocked_restored: 'Desbloqueado: o acesso anterior volta a valer (comando enviado).', unblocked_no_access: 'Desbloqueado. Sem acesso ativo: continua sem internet até liberar ou pagar.',
+  };
+  function liveView(slot) {
+    let busy = false; let filter = 'all'; let q = ''; let last = null; let sentAt = 0;
+    const canEdit = me && me.role === 'admin';
+    const status = h('div', { class: 'live-status' });
+    const msg = h('div', { class: 'live-msg', role: 'status' });
+    const stats = h('div', { class: 'stats' });
+    const alertSlot = h('div');
+    const list = h('div');
+    const search = h('input', { class: 'inp', type: 'search', placeholder: 'Buscar nome, e-mail, MAC ou IP', 'aria-label': 'Buscar' });
+    const sel = h('select', { class: 'sel', 'aria-label': 'Filtro' }, LIVE_FILTERS.map(([v, l]) => h('option', { value: v, text: l })));
+    const refreshBtn = h('button', { class: 'btn ghost', type: 'button' }, icon('refresh'), 'Atualizar');
+    const endBtn = canEdit ? h('button', { class: 'btn ghost danger', type: 'button', text: 'Encerrar viagem' }) : null;
+    let tq = null;
+    search.addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { q = search.value.trim(); load(); }, 300); });
+    sel.addEventListener('change', () => { filter = sel.value; load(); });
+    refreshBtn.addEventListener('click', () => load());
+    function flash(kind, text) { msg.className = 'live-msg ' + kind; msg.textContent = text; }
+
+    async function doAction(p, op_) {
+      if (!window.confirm(ACTION_TEXT[op_](p))) return;
+      let note = null;
+      if (op_ === 'grant' || op_ === 'block' || op_ === 'revoke') {
+        note = window.prompt('Observação (opcional, ex.: "lista de pré-pagos conferida"):', '');
+        if (note === null) return;
+      }
+      try {
+        const r = await api('device_action', { mac: p.mac, op: op_, note: note || undefined });
+        flash('ok', DONE_TEXT[r.result] || 'Feito.'); sentAt = Date.now();
+      } catch (e) { flash('error', e.message); }
+      load();
+    }
+    async function doTransfer(p) {
+      const to = (window.prompt(`TRANSFERIR o acesso de ${p.full_name || p.mac} (${p.mac}) para outro MAC (iPhone com MAC privado trocado).\n\nConfira a identidade pessoalmente. O MAC antigo perde o acesso.\n\nNovo MAC (ex.: AA:BB:CC:DD:EE:FF):`, '') || '').trim().toUpperCase().replace(/-/g, ':');
+      if (!to) return;
+      if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(to)) { flash('error', 'MAC inválido.'); return; }
+      try { await api('transfer', { from: p.mac, to }); flash('ok', `Acesso transferido para ${to}. Comandos enviados ao roteador.`); sentAt = Date.now(); } catch (e) { flash('error', e.message); }
+      load();
+    }
+    if (endBtn) endBtn.addEventListener('click', async () => {
+      const c = window.prompt('ENCERRAR A VIAGEM: todos os acessos liberados (pré-pagos, Pix e transferidos) serão revogados agora. O histórico e os pagamentos ficam guardados.\n\nPara confirmar, digite ENCERRAR:', '');
+      if (c === null) return;
+      try { const r = await api('end_trip', { confirm: c.trim() }); flash('ok', `Viagem encerrada: ${r.revoked} acesso(s) revogado(s).`); } catch (e) { flash('error', e.message); }
+      load();
+    });
+
+    function actionsFor(p) {
+      if (!canEdit) return h('span', { class: 'muted', text: '—' });
+      const b = (op_, label, kind) => h('button', { class: 'btn sm ' + (kind || 'ghost'), type: 'button', text: label, onclick: () => doAction(p, op_) });
+      const out = [];
+      if (p.blocked) out.push(b('unblock', 'Desbloquear'));
+      else {
+        if (p.access_state !== 'active') out.push(b('grant', 'Liberar acesso', 'primary'));
+        if (p.access_state === 'active') {
+          if (['authorized_not_authenticated', 'auth_error', 'provisioning'].includes(p.status)) out.push(b('reauth', 'Reautenticar', 'primary'));
+          if (p.host_authorized) out.push(b('kick', 'Desconectar'));
+          out.push(b('revoke', 'Revogar'));
+          out.push(h('button', { class: 'btn sm ghost', type: 'button', text: 'Transferir', onclick: () => doTransfer(p) }));
+        }
+        out.push(b('block', 'Bloquear', 'danger'));
+      }
+      return h('div', { class: 'row-actions' }, out);
+    }
+    const ageS = (iso, now) => (iso ? Math.max(0, Math.round((now - Date.parse(iso)) / 1000)) : null);
+    function render(d) {
+      const sm = d.summary; const now = Date.parse(sm.at) || Date.now();
+      const rAge = ageS(sm.router_seen_at, now); const fAge = ageS(sm.feed_at, now);
+      clear(status).append(
+        badge(sm.router_online ? 'MikroTik online' : 'MikroTik sem contato', sm.router_online ? 'green' : 'red'), ' ',
+        h('span', { class: 'muted', text: `Último contato do roteador: ${ago(rAge)} · presença: ${ago(fAge)}${sm.feed_fresh ? '' : ' (desatualizada)'} · painel atualizado às ${tmf.format(new Date())}` }),
+        sm.commands_open ? h('span', null, ' ', badge(`${sm.commands_open} comando(s) aguardando o roteador`, 'amber')) : '',
+        sm.trip_ended_at ? h('span', null, ' ', badge('Viagem encerrada em ' + fmtDT(sm.trip_ended_at), 'gray')) : '');
+      clear(stats).append(
+        statCard('Na rede agora', String(sm.present), 'vistos pelo MikroTik (≈ últimos 90 s)', 'accent'),
+        statCard('Navegando', String(sm.internet), 'sessão autenticada confirmada'),
+        statCard('Aguardando', String(sm.waiting), `cadastrados sem acesso${sm.pix_pending ? ` · ${sm.pix_pending} com Pix pendente` : ''}`, sm.waiting ? 'warn' : ''),
+        statCard('Não identificados', String(sm.present_unidentified), 'na rede, sem nome/e-mail'),
+        statCard('Pré-pagos liberados', String(sm.manual), 'R$ 20 pagos fora do sistema'),
+        statCard('Pix R$ 25', String(sm.pix), `receita no Mercado Pago: ${money(sm.revenue_total_cents)}`),
+        statCard('Liberados sem internet', String(sm.problems), 'use Reautenticar', sm.problems ? 'bad' : ''),
+        statCard('Bloqueados', String(sm.blocked), sm.transferred ? `${sm.transferred} transferido(s)` : null),
+        statCard('Cadastrados', String(sm.registered), 'total com nome e e-mail'));
+      clear(alertSlot).append(sm.problems ? h('div', { class: 'alerts' }, h('div', { class: 'alert critical', role: 'alert' },
+        h('strong', { text: `${sm.problems} aparelho(s) com acesso liberado mas sem internet.` }),
+        h('span', { class: 'alert-meta', text: 'O roteador tenta reautenticar sozinho; se persistir, filtre "Pagou/liberado sem internet" e use Reautenticar, ou peça para desligar e ligar o Wi-Fi.' }))) : '');
+      const rows = d.list.rows.map((p) => {
+        const st = LIVE_STATUS[p.status] || [p.status, 'gray'];
+        const seen = ageS(p.last_contact, now);
+        const cmd = p.cmd_status === 'queued' || p.cmd_status === 'sent' ? 'Comando aguardando o roteador' : p.cmd_status === 'failed' ? 'Comando falhou' : null;
+        return { cells: [
+          h('div', null, h('strong', { text: p.full_name || 'Não identificado' }), h('div', { class: 'muted small', text: p.email || 'Não informado' })),
+          h('div', null, h('code', { text: p.mac }), h('div', { class: 'muted small', text: p.ip || '—' })),
+          h('div', null, badge(p.online ? 'Na rede' : 'Sem sinal', p.online ? 'green' : 'gray'), h('div', { class: 'muted small', text: seen == null ? 'nunca visto' : 'visto ' + ago(seen) })),
+          h('div', null, badge(st[0], st[1]), cmd ? h('div', { class: 'muted small', text: cmd }) : null, p.pix_pending && p.status !== 'pix_pending' ? h('div', { class: 'muted small', text: 'Pix pendente' }) : null),
+          h('div', null, h('span', { text: p.access_source ? SOURCE[p.access_source] || p.access_source : (p.paid_count ? `${p.paid_count} pagamento(s) antigo(s)` : '—') }),
+            p.access_granted_at ? h('div', { class: 'muted small', text: `${p.access_state === 'active' ? 'liberado' : 'revogado'} ${fmtDT(p.access_state === 'active' ? p.access_granted_at : p.revoked_at)}${p.access_granted_by && p.access_state === 'active' ? ' · ' + p.access_granted_by : ''}` }) : null),
+          actionsFor(p)] };
+      });
+      clear(list).append(rows.length
+        ? table(['Passageiro', 'MAC / IP', 'Presença', 'Situação', 'Origem do acesso', 'Ações'], rows)
+        : empty(filter === 'all' && !q ? 'Nenhum aparelho visto ainda. Assim que alguém conectar ao Wi-Fi, aparece aqui.' : 'Nada com este filtro.'),
+      h('p', { class: 'muted small', text: `${d.list.total} aparelho(s). A presença vem do MikroTik a cada ~20 s; "Na rede" = visto nos últimos 90 s (o Hotspot pode manter registros de quem acabou de sair).` }));
+    }
+    async function load() {
+      if (busy) return; busy = true; refreshBtn.disabled = true;
+      try {
+        const d = await api('live', { filter, q });
+        last = d; render(d);
+        if (sentAt && Date.now() - sentAt > 120000) { sentAt = 0; msg.textContent = ''; msg.className = 'live-msg'; }
+      } catch (e) {
+        if (!last) clear(list).append(note('error', e.message)); else flash('error', 'Falha ao atualizar: ' + e.message + ' (tentando de novo)');
+      } finally { busy = false; refreshBtn.disabled = false; }
+    }
+    slot.replaceChildren(h('div', { class: 'live' }, status,
+      h('div', { class: 'toolbar' }, h('div', { class: 'filters' }, sel, search), h('div', { class: 'toolbar-r' }, refreshBtn, endBtn)),
+      msg, alertSlot, stats, card('Passageiros e aparelhos', list)));
+    load();
+    every(load, 4000);
+  }
+
   // ---- rotas ------------------------------------------------------------------------------------------------------------------
   function route() {
     runCleanups();
     if (!session || !me) { renderLogin(); return; }
     const path = currentPath();
-    const titles = { '/admin': 'Dashboard', '/admin/pagamentos': 'Pagamentos', '/admin/dispositivos': 'Dispositivos', '/admin/planos': 'Planos e preços', '/admin/relatorios': 'Relatórios', '/admin/config': 'Configurações' };
-    const title = titles[path] || 'Dashboard';
+    const titles = { '/admin': 'Ao vivo', '/admin/resumo': 'Resumo', '/admin/pagamentos': 'Pagamentos', '/admin/dispositivos': 'Créditos de horas (antigos)', '/admin/planos': 'Planos e preços', '/admin/relatorios': 'Relatórios', '/admin/config': 'Configurações' };
+    const title = titles[path] || 'Ao vivo';
     document.title = title + ' • Wifi a Bordo';
-    const views = { '/admin': dashboardView, '/admin/pagamentos': paymentsView, '/admin/dispositivos': devicesView, '/admin/planos': plansView, '/admin/relatorios': reportsView, '/admin/config': configView };
-    const view = views[path] || dashboardView;
+    const views = { '/admin': liveView, '/admin/resumo': dashboardView, '/admin/pagamentos': paymentsView, '/admin/dispositivos': devicesView, '/admin/planos': plansView, '/admin/relatorios': reportsView, '/admin/config': configView };
+    const view = views[path] || liveView;
     const state = loadPeriod();
     lazyView(title, (slot) => view(slot, state));
     window.scrollTo(0, 0);
