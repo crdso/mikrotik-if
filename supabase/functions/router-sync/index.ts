@@ -33,6 +33,8 @@ export async function handler(req) {
       if (hosts && hosts.length <= 2000) {
         await rpc('hotspot_router_report_hosts', { p_macs: hosts }).catch((e) => console.error('router-sync hosts', String(e)));
       }
+      // Limpeza diária de pedidos inúteis (a função decide se já rodou hoje; falha nunca atrapalha a entrega).
+      await rpc('hotspot_maintenance', {}).catch((e) => console.error('router-sync maintenance', String(e)));
       const r = await rpc('hotspot_router_pull', { p_limit: MAX_PER_POLL });
       const orders = r?.orders ?? [];
       if (url.searchParams.get('fmt') === 'json') return json({ orders });

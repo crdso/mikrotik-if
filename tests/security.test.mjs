@@ -44,12 +44,35 @@ test('ataque de cota global: 300 MACs inventados não consomem a cota e o passag
   assert.equal(legit.status, 200, 'a venda legítima não foi bloqueada pelo ataque');
 });
 
-test('a lista expira: sem atualização por mais de 120 s volta ao modo anterior; aparelho visto há muito tempo deixa de valer', async () => {
+test('lista recente: aparelho visto há 20 min já não vale (janela de 15 min)', async () => {
   router.hosts = new Set([MAC_A]); await router.poll();
   await h.q("update public.hotspot_known_hosts set seen_at = now() - interval '20 minutes'");
-  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_A }), 'unknown', 'visto há 20 min: não vale mais (janela de 15 min)');
+  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_A }), 'unknown');
+});
+
+test('SEM fail-open: roteador parou de informar -> MAC inventado continua barrado; quem já usou o Wi-Fi (24 h) ainda compra', async () => {
+  router.hosts = new Set([MAC_A]); await router.poll();
   await h.q("update public.hotspot_settings set value = (now() - interval '5 minutes')::text where key = 'hosts_feed_at'");
-  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_B }), 'no_feed');
+  await h.q("update public.hotspot_known_hosts set seen_at = now() - interval '3 hours'");
+  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_B }), 'unknown', 'invenção barrada mesmo com a lista parada');
+  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_A }), 'ok', 'visto há 3 h: ainda vale com a lista parada');
+  const bad = await h.createPix(MAC_B);
+  assert.equal(bad.status, 403); assert.equal(h.mp.creates().length, 0);
+  assert.equal((await h.createPix(MAC_A)).status, 200, 'comprador legítimo continua atendido');
+  await h.q("update public.hotspot_known_hosts set seen_at = now() - interval '30 hours'");
+  assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_A }), 'unknown', 'depois de 24 h sem ser visto, deixa de valer');
+});
+
+test('limpeza diária: apaga pedidos falhos/expirados/pendentes antigos, preserva pagos e recentes, roda 1x por dia', async () => {
+  const paid = await h.payOrder(MAC_A);
+  await h.q("insert into public.hotspot_orders (device_mac, amount_cents, grant_seconds, payment_status, created_at, paid_at) values ('AA:BB:CC:DD:EE:11', 500, 18000, 'failed', now() - interval '40 days', null), ('AA:BB:CC:DD:EE:12', 500, 18000, 'expired', now() - interval '40 days', null), ('AA:BB:CC:DD:EE:13', 500, 18000, 'pending', now() - interval '9 days', null), ('AA:BB:CC:DD:EE:14', 500, 18000, 'failed', now() - interval '2 days', null), ('AA:BB:CC:DD:EE:15', 500, 18000, 'paid', now() - interval '90 days', now() - interval '90 days')");
+  await h.q("delete from public.hotspot_settings where key = 'maintenance_at'");
+  const r = await h.rpc('hotspot_maintenance', {});
+  assert.equal(r.ran, true); assert.equal(r.failed_expired_deleted, 2); assert.equal(r.pending_deleted, 1);
+  const left = (await h.q("select device_mac from public.hotspot_orders order by 1")).map((x) => x.device_mac);
+  assert.ok(left.includes('AA:BB:CC:DD:EE:14') && left.includes('AA:BB:CC:DD:EE:15'), 'recente e pago preservados');
+  assert.ok(left.includes(MAC_A), 'pedido pago real preservado'); assert.ok(paid);
+  assert.equal((await h.rpc('hotspot_maintenance', {})).ran, false, 'segunda chamada no mesmo dia não faz nada');
 });
 
 test('lista vazia ou inválida não liga o bloqueio; entradas inválidas são ignoradas; tamanho limitado', async () => {
