@@ -27,13 +27,15 @@ export async function handler(req) {
       return json({
         known: st?.known === true,
         registered: st?.registered === true,
-        ...(st?.registered ? { name_hint: String(st.name_hint ?? ''), email_hint: String(st.email_hint ?? '') } : {}),
+        ...(st?.registered ? { name_hint: String(st.name_hint ?? '').split(' ')[0] } : {}), // só o primeiro nome (o MAC não prova posse)
         access,
         internet: st?.internet === true,
         stuck: st?.stuck === true,
         pix_pending: st?.pix_pending === true,
         router_online: st?.router_online === true,
         expires_at: typeof st?.expires_at === 'string' ? st.expires_at : null,
+        // Cortesia de 2 min: estado REAL (confirmado pelo roteador), nunca presumido.
+        trial: ['none', 'preparing', 'authenticating', 'active', 'ended', 'failed'].includes(st?.trial) ? st.trial : 'none',
       }, 200, headers);
     }
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
@@ -46,6 +48,10 @@ export async function handler(req) {
     if (!validName(name)) return json({ error: 'Informe seu nome completo (nome e sobrenome).' }, 400, headers);
     if (!validEmail(email)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
 
+    // Depois de 15 min o cadastro só muda pelo organizador (o MAC não prova posse do aparelho).
+    if (await rpc('hotspot_registration_locked', { p_mac: mac, p_name: name, p_email: email })) {
+      return json({ error: 'Seu cadastro já foi confirmado. Para corrigir nome ou e-mail, fale com o organizador.', locked: true }, 409, headers);
+    }
     const r = await rpc('hotspot_register_passenger', { p_mac: mac, p_name: name, p_email: email });
     const bad = registrationError(r?.action, SERVICE_NAME);
     if (bad) return json({ error: bad[1], ...(bad[2] ? { retry: true } : {}) }, bad[0], bad[0] === 429 ? { ...headers, 'Retry-After': '60' } : headers);
