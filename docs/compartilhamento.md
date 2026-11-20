@@ -45,6 +45,12 @@ Resultado esperado: com o compartilhamento ligado, os contadores de TTL 127/63 s
 /ip firewall mangle remove [find where comment~"wab-ttl"]
 ```
 
+## Situação no equipamento (auditoria de 20/11/2026)
+- **Instalado:** duas regras de mangle **somente contadoras** (`wab-ttl-127` e `wab-ttl-63`), com `connection-state=new` e `in-interface=bridge` — contam só o 1º pacote de cada conexão nova, custo mínimo de CPU. Nada é bloqueado.
+- **FastTrack desativado:** a regra padrão `fasttrack-connection` fazia o tráfego pular as filas do Hotspot e escapar do `rate-limit` do plano (1M/4M). Sem ela, quem compartilha a conexão realmente divide 1M/4M. Reverter: `/ip firewall filter set [find where action=fasttrack-connection] disabled=no`.
+- **Ainda não medido:** comparar contadores com um notebook de teste autorizado compartilhando e sem compartilhar (depende de um teste físico seu). Falsos positivos ainda não observados porque não houve tráfego de passageiros.
+- Para ver: `/ip firewall mangle print stats where comment~"wab-ttl"` — remover: `/ip firewall mangle remove [find where comment~"wab-ttl"]`.
+
 ## Recomendação
 1. Manter como está e **medir por alguns dias** com as regras contadoras acima, para saber o tamanho real do problema.
 2. Se o problema se confirmar, usar o bloqueio **só** de TTL 63/127 vindo de hosts já autenticados, com período de teste e regra de desativação rápida (`disable`), nunca direto em produção durante o uso.

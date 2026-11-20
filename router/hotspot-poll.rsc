@@ -71,7 +71,24 @@
     :local ok false
     :local resp ""
     :do {
-        :local r [/tool fetch url=$api mode=https http-method=get check-certificate=$tls http-header-field=("X-Router-Key: " . $secret) output=user as-value]
+        # Aparelhos presentes no Hotspot (ate 60), "AA-BB-CC-DD-EE-FF;..." no cabecalho X-Hosts: o servidor so aceita
+        # gerar Pix para quem o roteador ve (impede MACs inventados pela internet). Falha aqui envia sem a lista.
+        :local hosts ""
+        :local hc 0
+        :do {
+            :foreach hh in=[/ip hotspot host find] do={
+                :if ($hc < 60) do={
+                    :local hm [:tostr [/ip hotspot host get $hh mac-address]]
+                    :if ([:len $hm] = 17) do={
+                        :set hosts ($hosts . [:pick $hm 0 2] . "-" . [:pick $hm 3 5] . "-" . [:pick $hm 6 8] . "-" . [:pick $hm 9 11] . "-" . [:pick $hm 12 14] . "-" . [:pick $hm 15 17] . ";")
+                        :set hc ($hc + 1)
+                    }
+                }
+            }
+        } on-error={ :set hosts "" }
+        :local hdr ("X-Router-Key: " . $secret)
+        :if ([:len $hosts] > 0) do={ :set hdr ($hdr . ",X-Hosts: " . $hosts) }
+        :local r [/tool fetch url=$api mode=https http-method=get check-certificate=$tls http-header-field=$hdr output=user as-value]
         :set resp ($r->"data")
         :set ok true
     } on-error={ :set ok false }

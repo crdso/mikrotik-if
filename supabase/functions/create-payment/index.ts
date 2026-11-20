@@ -57,6 +57,10 @@ export async function handler(req) {
       await settleOldPix(r.order_id, r.payment_id); // cancela (se comprovadamente pendente) ou aplica o pagamento aprovado
     }
     switch (r?.action) {
+      case 'unknown_device':
+        return json({ error: 'Não reconhecemos este aparelho na rede ' + SERVICE_NAME + '. Conecte-se à rede, aguarde alguns segundos e abra o portal pela tela de login.', retry: true }, 403, headers);
+      case 'invalid_mac':
+        return json({ error: 'Dispositivo inválido.' }, 400, headers);
       case 'plan_unavailable':
         return json({ error: 'Este plano não está disponível. Atualize a página e escolha outro.' }, 409, headers);
       case 'rate_limited':

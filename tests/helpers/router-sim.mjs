@@ -48,7 +48,8 @@ export class RouterSim {
     this.busy = true;
     try {
       if (!this.online) { this.failedPolls++; return { ok: false }; }
-      const r = await this.h.routerPull(undefined, 'text');
+      // Espelha o X-Hosts do script: só envia a lista quando o teste a define (this.hosts = Set de MACs presentes).
+      const r = await this.h.routerPull(undefined, 'text', this.hosts ? [...this.hosts].map((m) => m + ';').join('') : null);
       if (r.status !== 200) { this.failedPolls++; return { ok: false, status: r.status }; }
       this.failedPolls = 0;
       for (const line of r.text.split('\n')) {
