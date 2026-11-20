@@ -1,0 +1,3 @@
+# O painel administrativo é uma página única (rotas /admin, /admin/planos, ...). Arquivos existentes têm prioridade.
+/admin    /admin/index.html   200
+/admin/*  /admin/index.html   200

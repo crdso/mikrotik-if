@@ -204,7 +204,7 @@ export async function createHarness() {
   const h = {
     pg, mp, state, ...handlers,
     webhookHandler: handlers.webhook, // (h.webhook abaixo é o atalho de teste)
-    rpc: rpcAsServiceRole,
+    rpc: rpcAsServiceRole, authUsers,
     q: async (sql, params) => (await pg.query(sql, params)).rows,
     orders: () => pg.query('select * from public.hotspot_orders order by created_at').then((r) => r.rows),
     order: (id) => pg.query('select * from public.hotspot_orders where id = $1', [id]).then((r) => r.rows[0]),
