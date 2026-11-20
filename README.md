@@ -209,6 +209,7 @@ Os testes são **simulados** (Mercado Pago e MikroTik) e o banco é real em mem�
 | [docs/arquitetura.md](docs/arquitetura.md) | Componentes, fluxo, estados, camadas de segurança |
 | [docs/mikrotik.md](docs/mikrotik.md) | RouterOS 6.48/7: diagnóstico, CA, Hotspot, Walled Garden, script, reversão |
 | [docs/operacao-e-seguranca.md](docs/operacao-e-seguranca.md) | Painel, isolamento, backup, logs, reinicialização, emergência, capacidade |
+| [docs/compartilhamento.md](docs/compartilhamento.md) | Análise: compartilhamento por notebook (NAT), TTL, teste reversível e recomendação |
 | [docs/supabase.md](docs/supabase.md) | Banco, funções, segredos, rotação de chave |
 | [docs/mercado-pago.md](docs/mercado-pago.md) | Pix, webhook, estados do pagamento |
 | [docs/netlify.md](docs/netlify.md) | Portal, importação do GitHub e portal cativo |
