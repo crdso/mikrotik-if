@@ -31,12 +31,15 @@
 :global wifiPollFails
 :if ([:typeof $wifiPollBusy] = "nothing") do={ :set wifiPollBusy false }
 :if ([:typeof $wifiPollFails] = "nothing") do={ :set wifiPollFails 0 }
+:global wifiExpSent
+:if ([:typeof $wifiExpSent] = "nothing") do={ :set wifiExpSent "" }
 
 :local api "https://SEU-PROJETO.supabase.co/functions/v1/router-sync"
 :local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"
 :local tls "yes-without-crl"
 :local profile "wifi-5h"
 :local maxGrant 2d
+:local expMargin 10s
 
 # Evita duas execuções ao mesmo tempo; uma trava "velha" (3 min) é ignorada.
 :local run true
@@ -100,6 +103,36 @@
                 } else={ :log warning "wifi-poll: linha invalida ignorada" }
             }
         }
+
+        # Aparelhos com credito ESGOTADO (uptime + margem >= limit-uptime): avisa o backend para o portal
+        # mostrar "Seu tempo de internet acabou". O bloqueio em si e do Hotspot (nao e alterado aqui).
+        # A margem cobre o arredondamento do contador. wifiExpSent guarda quem ja foi avisado;
+        # usuarios que voltam a ter credito saem da lista. Qualquer erro aqui e registrado e ignorado.
+        :do {
+            :local keep ""
+            :local toRep ""
+            :local cnt 0
+            :foreach eu in=[/ip hotspot user find where comment~"o:"] do={
+                :local lim [/ip hotspot user get $eu limit-uptime]
+                :if ($lim > 0s) do={
+                    :if (([/ip hotspot user get $eu uptime] + $expMargin) >= $lim) do={
+                        :local nm [/ip hotspot user get $eu name]
+                        :if ([:len $nm] = 17) do={
+                            :if ([:typeof [:find $wifiExpSent $nm]] = "nil") do={
+                                :if ($cnt < 10) do={ :set toRep ($toRep . $nm . ","); :set cnt ($cnt + 1) }
+                            } else={ :set keep ($keep . $nm . ",") }
+                        }
+                    }
+                }
+            }
+            :if ($cnt > 0) do={
+                :do {
+                    /tool fetch url=$api mode=https http-method=post http-data=("expired=" . $toRep) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
+                    :set keep ($keep . $toRep)
+                } on-error={ :log warning "wifi-poll: falha ao avisar creditos esgotados" }
+            }
+            :set wifiExpSent $keep
+        } on-error={ :log warning "wifi-poll: erro ao verificar creditos esgotados" }
     } else={
         :set wifiPollFails ($wifiPollFails + 1)
         :if (($wifiPollFails = 1) || (($wifiPollFails % 30) = 0)) do={

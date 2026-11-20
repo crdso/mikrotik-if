@@ -22,7 +22,7 @@ Usa a **API de Pagamentos** oficial. Valor fixo de R$ 5,00, Pix dinâmico, QR Co
 
 1. **Developers → Suas integrações:** crie uma aplicação (API de pagamentos). A conta precisa ter **Pix habilitado**.
 2. Copie o **Access Token de produção** e cadastre como segredo (`supabase secrets set MP_ACCESS_TOKEN=...` no seu terminal — **não cole tokens em chats**).
-3. **Webhooks** (modo produção): URL `https://SEU_REFERENCE_ID.supabase.co/functions/v1/mp-webhook`, evento **Pagamentos**. Copie a **chave secreta** e cadastre como `MP_WEBHOOK_SECRET`.
+3. **Webhooks — ação separada no painel do Mercado Pago Developers** (cadastrar as secrets no Supabase **não** ativa o webhook): em *Suas integrações → sua aplicação → Webhooks → Configurar notificações*, no modo **produção**, informe a URL `https://SEU_REFERENCE_ID.supabase.co/functions/v1/mp-webhook` e marque o evento **Pagamentos** (`payment`, o único necessário). Ao salvar, o painel mostra a **chave secreta** da assinatura: cadastre-a como `MP_WEBHOOK_SECRET`.
 4. Use "Simular notificação" no painel: o resultado esperado é uma resposta **sem `401`** (o pagamento simulado não existe e a função devolve `payment_not_found`). `401` indica segredo errado. Isso só prova a assinatura.
 5. **Primeiro pagamento real de R$ 5, feito por você mesmo**, antes de ligar o MikroTik; depois estorne pelo painel, se quiser.
 

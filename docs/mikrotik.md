@@ -50,26 +50,24 @@ Interpretação do bloco HTTPS:
 | "sem validar" OK, validando FALHOU | CA não importada, relógio errado ou valor não suportado | Seção 4; ajuste `:local tls` no script (`yes` ou `yes-without-crl`) |
 | Algum modo validando OK | Pronto | Use esse valor em `:local tls` |
 
-Observação sobre o TLS (medido no domínio `supabase.co`, **um projeto real pode diferir**): o servidor exige **TLS 1.2 ou superior**; no TLS 1.2 aceitou somente `ECDHE-RSA-AES128-GCM-SHA256` entre as cifras testadas; a cadeia termina na raiz **ISRG Root X1** (Let's Encrypt). Se o `fetch` do RouterOS 6.48.6 negocia isso, só o diagnóstico mostra.
+Observação sobre o TLS. Medido de fora, no domínio `supabase.co`: exige **TLS 1.2 ou superior** e, no TLS 1.2, aceitou apenas `ECDHE-RSA-AES128-GCM-SHA256` entre as cifras testadas. **Resultado real num hEX lite com RouterOS 6.48.6** (diagnóstico executado pelo proprietário do equipamento): o `fetch` negociou TLS com o domínio de um projeto Supabase e **`check-certificate=yes-without-crl` e `check-certificate=yes` funcionaram** com a CA correta importada; a cadeia daquele projeto terminava em **GTS Root R4 (Google Trust Services)**. A CA exigida depende do domínio/projeto e pode mudar: use a que o diagnóstico indicar.
 
 ## 4. Certificado da CA (o RouterOS 6 não traz nenhuma)
 
 O roteador valida o servidor contra a CA **que você importar**. Importe **somente** a raiz necessária (economiza RAM e flash; evite importar pacotes inteiros de CAs).
 
-1. No computador, baixe a raiz pública em `https://letsencrypt.org/certs/isrgrootx1.pem` (página oficial: https://letsencrypt.org/certificates/).
-2. **Confira a impressão digital** antes de enviar ao roteador:
+1. Descubra qual raiz o seu projeto usa: rode o diagnóstico (seção 3). Se a validação falhar por falta de CA, o servidor apresenta uma cadeia que termina numa raiz pública conhecida (por exemplo **GTS Root R4**, do Google Trust Services, ou **ISRG Root X1**, da Let's Encrypt).
+2. Baixe a raiz **somente do site oficial da autoridade** (Google Trust Services: https://pki.goog/ ; Let's Encrypt: https://letsencrypt.org/certificates/) e **confira a impressão digital** publicada por ela antes de enviar ao roteador:
 
 ```sh
-openssl x509 -in isrgrootx1.pem -noout -fingerprint -sha256
+openssl x509 -in raiz.pem -noout -fingerprint -sha256
 ```
 
-   A impressão digital SHA-256 do certificado **ISRG Root X1** deve ser:
-   `96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6`
-   (valor lido da cadeia apresentada pelo servidor durante o desenvolvimento; confirme também no site da Let's Encrypt). Se for diferente, **não importe**.
-3. Envie o arquivo (Files) e importe:
+   Se a impressão digital não bater com a publicada pela autoridade, **não importe**. (Medido durante o desenvolvimento: a raiz ISRG Root X1 tem SHA-256 `96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6`.)
+3. Envie o arquivo (Files) e importe (**não importe duas vezes**: confira antes com `/certificate print`):
 
 ```routeros
-/certificate import file-name=isrgrootx1.pem passphrase=""
+/certificate import file-name=raiz.pem passphrase=""
 /certificate print
 ```
 
@@ -80,13 +78,13 @@ Reversão: `/certificate remove <numero>`.
 
 ## 5. Hotspot: duas adições (reversíveis)
 
-**5.1 Perfil de usuário do plano** (novo; não afeta os perfis atuais):
+**5.1 Perfil de usuário do plano** — **use o que já existe**. Se o seu roteador já tem um perfil com o limite desejado (por exemplo `plano-5h` com `rate-limit=1M/4M`), **não crie outro**: informe o nome dele ao gerar os arquivos (`HOTSPOT_USER_PROFILE`, veja a seção 11). Só se não existir nenhum perfil adequado:
 
 ```routeros
 /ip hotspot user profile add name=wifi-5h shared-users=1 rate-limit=1M/4M
 ```
 
-`rate-limit=1M/4M` é **upload/download** do passageiro (rx/tx do ponto de vista do roteador). Reversão: `/ip hotspot user profile remove [find name=wifi-5h]`.
+`rate-limit=1M/4M` é **upload/download** do passageiro (rx/tx do ponto de vista do roteador). Confira `shared-users=1` no perfil (`/ip hotspot user profile print detail where name=<perfil>`): garante **uma sessão por MAC**. Reversão: remova **apenas** um perfil que você mesmo criou neste passo.
 
 **5.2 Login automático por MAC** (altera o *server profile* em uso — **anote o `login-by` atual antes**; o diagnóstico o mostra):
 
@@ -97,6 +95,18 @@ Reversão: `/certificate remove <numero>`.
 ```
 
 Isso é **aditivo**: quem não tem usuário por MAC continua vendo a tela de login. Faça em horário sem uso e deixe o comando de volta pronto: `/ip hotspot profile set [find name=hsprof1] login-by=<valor anotado>`. Quando tudo estiver validado, para produção prefira apenas `login-by=mac` (menos superfície de tentativa de senha). O usuário criado pelo script tem `mac-address=<MAC>`: outro aparelho não o utiliza.
+
+## 5.3 Autenticação por MAC no RouterOS 6: o que **não** está confirmado e como testar
+
+A documentação consultada confirma o princípio (com `login-by` contendo `mac`, o Hotspot autentica sozinho o aparelho cujo MAC existe como usuário), mas **não confirmou**: (a) o formato exato do nome do usuário (o projeto usa **MAIÚSCULAS com dois-pontos**, como o Hotspot informa em `$(mac)`), (b) o uso de senha vazia, (c) se alterar `limit-uptime` vale para uma **sessão já ativa**. Há relatos de que o modo `mac-as-username-and-password` (propriedade `mac-auth-mode` do perfil do servidor, quando existir) pode falhar; o usado aqui é o padrão (`mac` como nome, senha vazia). O vínculo ao aparelho vem de `mac-address=<MAC>` no usuário e `shared-users=1` no perfil.
+
+Teste **no seu roteador**, nesta ordem (os comandos exatos estão no roteiro gerado, passos 3 e 6):
+
+1. **Teste A (sem script, sem pagamento):** crie à mão um usuário com o MAC do seu celular e `limit-uptime=3m`; o celular deve entrar **sem tela de login** e ser **cortado em ~3 min**, voltando à tela de login.
+2. **Teste B (crédito vindo do backend):** crie um crédito de teste de 3 min (SQL de operador, no roteiro) e rode o `wifi-poll`; o usuário deve ser criado com `limit-uptime=3m` e o celular entrar sozinho.
+3. **Teste C (acúmulo 3 + 3 min):** com a sessão ativa, adicione um segundo crédito e rode o script; `limit-uptime` deve virar `6m`. **Anote** se a sessão ativa foi estendida ou se caiu no limite antigo e voltou sozinha (login por MAC): o projeto **não força** a queda da sessão ativa para não interromper o passageiro.
+
+Se o Teste A falhar, **pare**: o restante depende dele.
 
 ## 6. Walled Garden (o que o passageiro vê **antes** de pagar)
 
@@ -153,10 +163,29 @@ O sistema precisa de uma consulta HTTPS saindo do roteador (funciona atrás de C
 /system script remove [find name=wifi-poll]
 /ip hotspot walled-garden ip remove [find comment=wifi-a-bordo]
 /ip hotspot profile set [find name=hsprof1] login-by=<valor anotado>
-/ip hotspot user profile remove [find name=wifi-5h]
 /ip hotspot user remove [find where name~":"]
 ```
 
-e restaure `login.html.orig`. O ajuste de `login-by` e os usuários por MAC são os únicos itens que mudam o comportamento já validado; o resto é acréscimo isolado.
+e restaure `login.html.orig`. **Não** remova o perfil de usuário se ele já existia antes (por exemplo `plano-5h`), nem as regras do Walled Garden criadas antes. O ajuste de `login-by` e os usuários por MAC são os únicos itens que mudam o comportamento já validado; o resto é acréscimo isolado.
 
 Veja também [operacao-e-seguranca.md](operacao-e-seguranca.md) (proteção do painel, isolamento, emergência, reinicialização).
+
+## 12. Aviso de tempo esgotado (o que o roteador faz)
+
+Além de creditar pedidos, o `wifi-poll` informa ao backend os aparelhos cujo crédito esgotou (`uptime + 10 s >= limit-uptime`, só entre usuários criados por ele, marcados com `o:` no comentário). **Não altera nenhum limite nem derruba sessão**: o corte continua sendo do Hotspot. O aviso é enviado uma vez por esgotamento (a lista `wifiExpSent` é uma variável global; some no reinício e é reenviada, e o servidor é idempotente). Erros nesse bloco são registrados e ignorados, sem prender a trava de execução.
+
+O `login.html` repassa ao portal, como dica (`&err=...`), a mensagem de erro do Hotspot quando o login por MAC é recusado. **O texto exato dessa mensagem para "limite de tempo atingido" não foi confirmado no RouterOS 6.48**: o portal só a usa como evidência adicional (quando contém "uptime" ou "limit") e o aviso principal vem do backend. Confira no teste D do roteiro qual `err` o seu Hotspot envia.
+
+## 11. Gerar os arquivos com os valores da sua instalação
+
+O repositório é genérico (`SEU-SITE`, `SEU-PROJETO`, perfil `wifi-5h`). Para obter os arquivos prontos para o **seu** roteador, sem editar nada à mão e sem versionar valores reais:
+
+```powershell
+$env:PORTAL_URL="https://seu-portal.netlify.app"
+$env:SUPABASE_PROJECT_REF="abcdefghijklmnopqrst"
+$env:HOTSPOT_USER_PROFILE="plano-5h"        # perfil de usuário que já existe
+$env:HOTSPOT_SERVER_PROFILE="hsprof1"       # perfil do servidor Hotspot que já existe
+npm run prepare-router
+```
+
+Saída em `router-dist/` (ignorada pelo Git): `login.html`, `hotspot-poll.rsc`, `diagnostico.rsc`, `INSTALACAO-WINBOX.txt` (passo a passo com verificação e reversão) e `CHECKLIST-MERCADO-PAGO.txt`. O gerador **recusa** `TLS_MODE=no`, valida os nomes e **nunca grava a `ROUTER_SHARED_KEY`**: ela é digitada só no WinBox (a mesma cadastrada nos Secrets do Supabase).

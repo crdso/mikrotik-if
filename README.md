@@ -33,6 +33,7 @@ Um sistema genérico para vender acesso Wi-Fi por **Pix** em qualquer rede com *
 - **Webhook com assinatura**, leitura do **status real** na API e **reconciliação** automática se a notificação não chegar.
 - **Liberação somente após pagamento aprovado**: valor, moeda, meio e vínculo com o pedido são conferidos no banco.
 - **Crédito acumulado:** compras adicionais somam ao tempo restante; um pagamento nunca credita duas vezes (idempotência por pedido, por ACK e por marcador no roteador).
+- **Aviso de tempo esgotado:** quando as horas acabam, o portal mostra "Seu tempo de internet acabou" e oferece "Comprar mais 5 horas" (o roteador informa o esgotamento; o controle de tempo continua sendo só do MikroTik).
 - **Sem usuário e senha:** o MikroTik consulta o backend (HTTPS **de dentro para fora**, funciona atrás de CGNAT, sem abrir portas).
 - **RouterOS 6.43+ e 7** (protocolo de texto simples, sem JSON no roteador).
 - **Independente do Access Point:** o AP só faz a ponte Wi-Fi; nenhuma lógica no AP.
@@ -174,7 +175,7 @@ Detalhes e limitações do portal cativo: [docs/netlify.md](docs/netlify.md).
 
 ## 📡 Configuração do MikroTik
 
-O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já funciona**: tudo é acréscimo reversível e cada passo tem o comando para desfazer. Resumo:
+O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já funciona**: tudo é acréscimo reversível e cada passo tem o comando para desfazer. Resumo (os arquivos finais, **com os valores da sua instalação**, saem de `npm run prepare-router` em `router-dist/`, pasta ignorada pelo Git — veja a [seção 11 do guia](docs/mikrotik.md#11-gerar-os-arquivos-com-os-valores-da-sua-instalação)):
 
 1. Backup (`/export` e `/system backup save`), guardado **fora** do repositório.
 2. `router/diagnostico.rsc` (somente leitura): versão, memória, relógio, recursos da linguagem e HTTPS.
@@ -184,6 +185,10 @@ O guia [docs/mikrotik.md](docs/mikrotik.md) é feito para um Hotspot **que já f
 6. `router/login.html` e o script `wifi-poll` (rodar à mão primeiro; depois agendar).
 
 Segurança do painel, isolamento dos passageiros, reinicialização e procedimento de emergência: [docs/operacao-e-seguranca.md](docs/operacao-e-seguranca.md).
+
+## 🎨 Personalização do nome e do visual
+
+O portal exibe o nome do serviço no cabeçalho e nas mensagens. Para usar outro nome, troque `3TRC_Starlink` em `site/index.html`, `site/app.js`, `router/login.html` e na constante `SERVICE_NAME` de `supabase/functions/_shared/common.ts` (usada na mensagem de erro e na descrição da cobrança Pix). O visual é CSS puro (`site/style.css`) com um SVG leve (`site/art.svg`): sem fontes nem bibliotecas externas, compatível com a CSP e com navegadores de portal cativo.
 
 ## 🧪 Testes
 

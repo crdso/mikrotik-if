@@ -10,10 +10,22 @@
 <body style="font-family:system-ui,sans-serif;text-align:center;padding:32px">
 <p>Preparando o portal de pagamento…</p>
 <p><a id="go" href="https://SEU-SITE.netlify.app/?mac=$(mac)">Toque aqui se não abrir sozinho</a></p>
+<!-- Mensagem de erro do Hotspot (ex.: limite de tempo atingido). Fica num elemento que NÃO é executado,
+     então qualquer texto dela é inofensivo para o script abaixo. Vazio quando não há erro. -->
+<script id="hs-error" type="text/plain">$(error)</script>
 <script>
   // SUBSTITUIR "SEU-SITE.netlify.app" PELO DOMÍNIO REAL DO PORTAL (3 lugares neste arquivo).
-  // "$(mac)" é preenchido pelo próprio Hotspot do MikroTik ao servir esta página.
-  location.replace('https://SEU-SITE.netlify.app/?mac=' + encodeURIComponent('$(mac)'));
+  // "$(mac)" e "$(error)" são preenchidos pelo próprio Hotspot do MikroTik ao servir esta página.
+  // Este arquivo só ENVIA o aparelho ao portal; o portal nunca redireciona de volta (sem loop).
+  (function () {
+    var url = 'https://SEU-SITE.netlify.app/?mac=' + encodeURIComponent('$(mac)');
+    try {
+      var el = document.getElementById('hs-error');
+      var err = el ? (el.textContent || '').replace(/^\s+|\s+$/g, '').slice(0, 120) : '';
+      if (err && err.indexOf('$(') !== 0) url += '&err=' + encodeURIComponent(err);
+    } catch (e) { /* sem dica de erro: segue só com o MAC */ }
+    location.replace(url);
+  })();
 </script>
 </body>
 </html>

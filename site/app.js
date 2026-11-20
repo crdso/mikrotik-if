@@ -2,14 +2,18 @@
   'use strict';
   const CFG = window.HOTSPOT_CONFIG || {};
   const API = String(CFG.functionsUrl || '').replace(/\/+$/, '');
-  const mac = (new URLSearchParams(location.search).get('mac') || '').trim().toUpperCase();
+  const params = new URLSearchParams(location.search);
+  const mac = (params.get('mac') || '').trim().toUpperCase();
   const MAC_OK = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac);
+  // Dica do próprio Hotspot (login.html repassa $(error)): o login por MAC foi recusado por limite de tempo.
+  const LIMIT_HINT = /uptime|limit/i.test(params.get('err') || '');
   const KEY = 'wifi-a-bordo:v2';
-  const POLL_MS = 4000;
+  const POLL_MS = 4000;     // acompanhando um Pix
+  const WATCH_MS = 30000;   // acompanhando o crédito depois de liberado (portal aberto)
   const $ = (id) => document.getElementById(id);
-  const PANELS = ['buy', 'pix', 'paid', 'done', 'ended', 'invalid'];
+  const PANELS = ['buy', 'pix', 'paid', 'done', 'ended', 'expired', 'loading', 'invalid'];
 
-  let order = null;          // {order_id, read_token, qr_code, qr_code_base64, deadline}
+  let order = null;          // {order_id, read_token, qr_code, qr_code_base64, deadline, released}
   let pollTimer = null;
   let tickTimer = null;
   let checking = false;
@@ -29,6 +33,7 @@
     } catch (_) { /* ignora */ }
     return null;
   }
+  const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
 
   // ---- interface -----------------------------------------------------------
   function show(name) {
@@ -88,9 +93,18 @@
     $('paidhint').hidden = Date.now() - paidSince < 90000;
     clearInterval(tickTimer); tickTimer = null;
   }
+  // Liberado: o pedido continua guardado (só o necessário para reconhecer este aparelho depois) e o
+  // portal, se continuar aberto, acompanha o crédito para avisar quando o tempo acabar.
   function enterDone() {
     stopTimers(); show('done');
-    order = null; saveOrder();
+    if (order && !order.released) { order.released = true; saveOrder(); }
+    schedule(WATCH_MS);
+  }
+  function enterLoading() { show('loading'); $('loadingtext').textContent = 'Verificando seu acesso…'; }
+  // Tempo esgotado: confirmado pelo MikroTik (via backend) ou pelo próprio Hotspot. Nunca pelo navegador.
+  function enterExpired() {
+    stopTimers(); show('expired');
+    $('buymore').disabled = false; $('buymorelabel').textContent = 'Comprar mais 5 horas';
   }
   function enterEnded(title, text) {
     stopTimers(); show('ended');
@@ -105,7 +119,10 @@
     try {
       const s = await api(`payment-status?id=${encodeURIComponent(order.order_id)}&token=${encodeURIComponent(order.read_token)}`);
       failures = 0;
-      if (s.internet_ready) { enterDone(); return; }
+      if (s.internet_ready) {
+        if (s.device_credit === 'exhausted') { enterExpired(); return; }
+        enterDone(); return;
+      }
       if (s.status === 'paid') { enterPaid(); }
       else if (s.status === 'pending') {
         if (typeof s.seconds_left === 'number') setDeadline(s.seconds_left);
@@ -117,21 +134,37 @@
       schedule(POLL_MS);
     } catch (e) {
       failures += 1;
-      if (e.status === 404) { enterEnded('Pedido não encontrado', 'Gere um novo Pix para continuar.'); return; }
-      if (failures >= 3) {
+      if (e.status === 404) {                       // pedido não existe mais: trata como aparelho novo
+        order = null; saveOrder(); stopTimers();
+        if (LIMIT_HINT) enterExpired(); else show('buy');
+        return;
+      }
+      if (!$('loading').hidden) {                   // abrindo o portal e sem falar com o servidor
+        if (LIMIT_HINT) { enterExpired(); return; } // o Hotspot já informou que o limite foi atingido
+        $('loadingtext').textContent = 'Não consegui verificar seu acesso agora. Tentando de novo…';
+      } else if (failures >= 3) {
         const msg = 'Não consegui falar com o servidor. Confira se continua no 3TRC_Starlink; vou tentar de novo.';
-        if (!$('pix').hidden) setStatus(msg, 'error'); else feedback(msg);
+        if (!$('pix').hidden) setStatus(msg, 'error'); else if ($('done').hidden) feedback(msg);
       }
       schedule(Math.min(POLL_MS * (1 + failures), 20000));
     } finally { checking = false; }
   }
 
-  async function createPix() {
-    const email = $('email').value.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { feedback('Informe um e-mail válido.'); $('email').focus(); return; }
+  // fromExpired: o botão "Comprar mais 5 horas" inicia o MESMO fluxo real de Pix (o servidor reaproveita
+  // o Pix pendente do aparelho, então não há cobrança duplicada).
+  async function createPix(fromExpired) {
+    let email = $('email').value.trim();
+    if (fromExpired) {
+      email = (load(KEY + ':email') || '').trim();
+      if (!validEmail(email)) { show('buy'); $('email').focus(); feedback('Informe seu e-mail para gerar o novo Pix.'); return; }
+      $('email').value = email;
+    }
+    if (!validEmail(email)) { feedback('Informe um e-mail válido.'); $('email').focus(); return; }
     store(KEY + ':email', email);
-    const btn = $('pay');
-    btn.disabled = true; btn.textContent = 'Gerando Pix…';
+    const btn = fromExpired ? $('buymore') : $('pay');
+    const label = fromExpired ? $('buymorelabel') : $('paylabel');
+    const idle = fromExpired ? 'Comprar mais 5 horas' : 'Gerar Pix';
+    btn.disabled = true; label.textContent = 'Gerando Pix…';
     try {
       const r = await api('create-payment', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac, email }),
@@ -143,7 +176,7 @@
       if (r.status === 'paid') { enterPaid(); schedule(0); } else enterPix();
     } catch (e) {
       feedback(e.message);
-    } finally { btn.disabled = false; btn.textContent = 'Gerar Pix de R$ 5'; }
+    } finally { btn.disabled = false; label.textContent = idle; }
   }
 
   async function copyCode() {
@@ -166,7 +199,8 @@
   }
 
   // ---- eventos -------------------------------------------------------------
-  $('pay').addEventListener('click', createPix);
+  $('pay').addEventListener('click', () => createPix(false));
+  $('buymore').addEventListener('click', () => createPix(true));
   $('copy').addEventListener('click', copyCode);
   $('recheck').addEventListener('click', () => { setStatus('Verificando…'); schedule(0); });
   $('again').addEventListener('click', () => { show('buy'); $('email').focus(); });
@@ -178,5 +212,8 @@
   if (!MAC_OK || !API || API.includes('SEU-PROJETO')) { show('invalid'); return; }
   $('email').value = load(KEY + ':email') || '';
   order = recoverOrder();
-  if (order) { show('pix'); enterPix(); } else { show('buy'); }
+  if (order && order.released) { enterLoading(); schedule(0); }       // já teve crédito: descobre o estado atual
+  else if (order) { show('pix'); enterPix(); }                         // Pix em andamento
+  else if (LIMIT_HINT) { enterExpired(); }                             // o Hotspot informou limite atingido
+  else { show('buy'); }                                                // aparelho novo
 })();

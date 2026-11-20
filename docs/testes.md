@@ -15,7 +15,8 @@ npm run dev              # portal + backend SIMULADOS em http://localhost:8787/?
 | **Simulado** | O código real das Edge Functions e o banco | Mercado Pago (corpo, cabeçalhos, valores, falhas) e PostgREST | `tests/functions.test.mjs` |
 | **Simulado** | Backend e banco | O **algoritmo** do script do MikroTik, reproduzido em JavaScript (não é RouterOS) | `tests/router-protocol.test.mjs`, `tests/e2e.test.mjs` |
 | **Simulado** | Funções e banco | Segredos ausentes (falha segura) | `tests/secrets-missing.test.mjs` |
-| **Estático** | Leitura dos arquivos; `prepare-site` e `netlify.toml` | — | `tests/static.test.mjs` |
+| **Simulado** | Estado do crédito do aparelho (aviso de esgotado, nova compra, dois aparelhos, anti-enumeração, falha do Supabase, reinício) | Roteador (modelo do script) | `tests/device-credit.test.mjs` |
+| **Estático** | Leitura dos arquivos; `prepare-site`, `prepare-router` e `netlify.toml` | — | `tests/static.test.mjs` |
 | **Manual** | Portal no navegador (320 e 360 px) com backend simulado | Pagamento e roteador | feito na auditoria |
 
 ## Cenários cobertos

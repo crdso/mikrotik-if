@@ -25,7 +25,7 @@ setInterval(() => { router.poll().catch((e) => console.error('router sim:', e.me
 
 const csp = /Content-Security-Policy:\s*(.+)/.exec(readFileSync(path.join(ROOT, 'site/_headers'), 'utf8'))[1]
   .replace('https://SEU-PROJETO.supabase.co', API);
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
 
 async function toRequest(nodeReq) {
   const chunks = []; for await (const c of nodeReq) chunks.push(c);
@@ -71,6 +71,14 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/__dev/router' && req.method === 'POST') {
       router.online = url.searchParams.get('online') === '1';
       return sendJson(res, 200, { router_online: router.online });
+    }
+    if (url.pathname === '/__dev/exhaust' && req.method === 'POST') {   // o aparelho consome todo o crédito
+      const mac = (url.searchParams.get('mac') || '').toUpperCase();
+      const u = router.users.get(mac);
+      if (!u) return sendJson(res, 404, { error: 'roteador simulado não tem este usuário' });
+      u.uptime = u.limit; router.online = true;
+      await router.poll();
+      return sendJson(res, 200, { exhausted: true, reports: router.expReports.length });
     }
     if (url.pathname === '/__dev/state') {
       return sendJson(res, 200, { router_online: router.online, router_users: Object.fromEntries(router.users), orders: await h.orders() });

@@ -90,3 +90,13 @@ Testes adicionados nesta revisão: 14 (protocolo de texto, linhas maliciosas, re
 | 32 | Baixa | Sem CI | `.github/workflows/ci.yml` roda `npm ci` e `npm test` |
 | 33 | Info | Concorrência só simulada | Verificada em sessões distintas do Postgres real (reserva e aprovação) |
 | 34 | Info | Aviso do Supabase sobre `rls_auto_enable` executável por `anon` | Função **da plataforma**, preexistente; **não alterada** (decisão do mantenedor) |
+
+## Revisão 5 — aviso de tempo esgotado e finalização
+
+| # | Sev. | Item | Resultado |
+|---|---|---|---|
+| 35 | Média | O passageiro não era informado quando as horas acabavam | Tela "Seu tempo de internet acabou" + "Comprar mais 5 horas". O roteador avisa o esgotamento (sem alterar o controle de tempo), o backend guarda o estado por aparelho e o portal o lê só com o `read_token` do próprio pedido |
+| 36 | Média | Evitar enumeração de MACs e vazamento de histórico | Não existe consulta por MAC; resposta pública sem MAC, pagamento ou token; avisos exigem a chave do roteador; MACs sem crédito concedido são ignorados |
+| 37 | Baixa | Contador do Hotspot pode parar poucos segundos antes do limite | Margem de 10 s na detecção |
+| 38 | Baixa | Erro inesperado no bloco novo poderia prender a trava do script por 3 min | Bloco protegido por `:do { } on-error={ }` |
+| 39 | Baixa | Estado da migration: uma só migration cobria tudo | Migration aditiva `202611190002_device_credit.sql` (sem tocar em pedidos); harness e testes aplicam todas em ordem |

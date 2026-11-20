@@ -1,7 +1,7 @@
 // Testes do SQL REAL (migration aplicada em Postgres/PGlite). Camada: banco.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createHarness, MAC_A, MAC_B, ROOT } from './helpers/harness.mjs';
 
 let h;
@@ -233,7 +233,8 @@ test('purge: remove pedidos encerrados, preserva pendentes; rejeita dias inváli
 test('migration é idempotente (pode ser reexecutada sem perder pedidos)', async () => {
   await clean();
   const r = await newOrder(MAC_A, 'P18'); await apply(r.order_id, 'P18');
-  const sql = readFileSync(`${ROOT}/supabase/migrations/202611170001_hotspot_orders.sql`, 'utf8');
-  await h.pg.exec(sql);
+  for (const f of readdirSync(`${ROOT}/supabase/migrations`).filter((n) => n.endsWith('.sql')).sort()) {
+    await h.pg.exec(readFileSync(`${ROOT}/supabase/migrations/${f}`, 'utf8')); // reaplicar tudo, em ordem
+  }
   assert.equal((await h.order(r.order_id)).payment_status, 'paid');
 });

@@ -29,7 +29,7 @@ O MikroTik é configurado por último: até lá, todo o pagamento já deve estar
 
 1. Netlify → *Add new project → Import an existing project → GitHub* → o repositório. O `netlify.toml` define o build; crie antes do primeiro deploy a variável pública `SUPABASE_PROJECT_REF`.
 2. Depois do deploy, cadastrar `SITE_ORIGIN` (URL final, sem `/`) no Supabase; rodar `scripts/smoke.mjs` de novo.
-3. Abrir a URL **sem** `?mac=`: deve mostrar "Conecte ao Wi-Fi a Bordo".
+3. Abrir a URL **sem** `?mac=`: deve mostrar a orientação "Conecte ao" + o nome da rede.
 
 ## 4. Teste de Pix real — sem MikroTik (autorizado e pago por você)
 
@@ -40,7 +40,7 @@ O MikroTik é configurado por último: até lá, todo o pagamento já deve estar
 
 ## 5. MikroTik — [mikrotik.md](mikrotik.md)
 
-Na ordem do guia: diagnóstico → CA → perfil `wifi-5h` → `login-by` com `mac` → Walled Garden → `login.html` → script (rodar à mão, ler o Log) → agendador. **Cada passo tem reversão.** Endurecimento do painel e isolamento: [operacao-e-seguranca.md](operacao-e-seguranca.md).
+Gere os arquivos com os seus valores (`npm run prepare-router`, seção 11 do guia) e siga o `INSTALACAO-WINBOX.txt` gerado. Na ordem do guia: diagnóstico → CA → perfil `wifi-5h` → `login-by` com `mac` → Walled Garden → `login.html` → script (rodar à mão, ler o Log) → agendador. **Cada passo tem reversão.** Endurecimento do painel e isolamento: [operacao-e-seguranca.md](operacao-e-seguranca.md).
 
 ## 6. Testes finais nos celulares
 
@@ -72,7 +72,7 @@ Qualquer falha nos itens 1–3 = **não cobre ainda**.
 
 | Sintoma | Onde olhar |
 |---|---|
-| Portal diz "Conecte ao Wi-Fi a Bordo" | URL sem `?mac=`; `login.html` ainda com `SEU-SITE`; Hotspot sem preencher `$(mac)` |
+| Portal diz "Conecte ao" + o nome da rede | URL sem `?mac=`; `login.html` ainda com `SEU-SITE`; Hotspot sem preencher `$(mac)` |
 | "Não consegui falar com o servidor" | Walled Garden sem o Supabase; `SITE_ORIGIN` diferente da URL real; CSP gerada sem o projeto certo |
 | Pix gera, mas não confirma | `MP_WEBHOOK_SECRET` errado (log do `mp-webhook` mostra `401`); o portal ainda reconcilia em ~10 s |
 | "Pagamento confirmado", mas não libera | Roteador offline ou `wifi-poll` com erro: `/log print where message~"wifi-poll"`; chave diferente; relógio/CA |

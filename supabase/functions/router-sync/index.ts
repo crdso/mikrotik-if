@@ -4,6 +4,7 @@
 //   GET                 -> pedidos pagos ainda não confirmados, em TEXTO simples (RouterOS 6 não lê JSON)
 //   GET  ?fmt=json      -> o mesmo em JSON (RouterOS 7, testes)
 //   POST                -> ACK idempotente (corpo JSON ou order=<uuid>&mac=<MAC>)
+//   POST expired=MAC,MAC -> aviso de crédito esgotado (até 20 MACs; idempotente)
 // Autenticação: cabeçalho X-Router-Key == ROUTER_SHARED_KEY (ou ROUTER_SHARED_KEY_NEXT).
 //
 // Formato de texto (largura fixa, no máximo MAX_PER_POLL linhas, resposta < 1 KB):
@@ -34,6 +35,13 @@ export async function handler(req) {
     }
     if (req.method === 'POST') {
       const data = await readBody(req);
+      // Aviso do roteador: aparelhos cujo limit-uptime esgotou (o tempo é controlado SÓ pelo MikroTik).
+      if (data?.expired !== undefined) {
+        const list = Array.isArray(data.expired) ? data.expired.join(',') : String(data.expired);
+        if (list.length > 400) return json({ error: 'Invalid list' }, 400);
+        const r = await rpc('hotspot_router_report_exhausted', { p_macs: list });
+        return json({ ok: true, updated: r?.updated ?? 0 });
+      }
       const id = String(data?.order_id ?? data?.order ?? '');
       const mac = normalizeMac(data?.mac);
       if (!mac || !isUuid(id)) return json({ error: 'Invalid order' }, 400);

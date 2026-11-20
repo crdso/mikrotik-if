@@ -17,10 +17,11 @@ function walk(dir, out = []) {
   return out;
 }
 
-test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS', () => {
-  const sql = read('supabase/migrations/202611170001_hotspot_orders.sql');
+test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS (todas as migrations)', () => {
+  for (const file of readdirSync(path.join(ROOT, 'supabase/migrations')).filter((n) => n.endsWith('.sql')).sort()) {
+  const sql = read(`supabase/migrations/${file}`);
   const created = [...sql.matchAll(/create or replace function public\.(\w+)\(([^)]*)\)/g)].map((m) => m[1]);
-  assert.ok(created.length >= 9);
+  assert.ok(created.length >= 1, file);
   const granted = sql.slice(sql.indexOf('foreach f in array'));
   for (const fn of created) assert.match(granted, new RegExp(`'${fn}\\(`), `${fn} sem revoke/grant`);
   assert.match(sql, /revoke all on function public\.%s from public, anon, authenticated/);
@@ -34,6 +35,7 @@ test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS'
   for (const fn of created) {
     const body = sql.slice(sql.indexOf(`function public.${fn}(`));
     assert.match(body.slice(0, 700), /set search_path = public, pg_temp/, `${fn} sem search_path fixo`);
+  }
   }
 });
 
@@ -107,7 +109,8 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   const live = rsc.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // sem comentários, strings intactas
   assert.doesNotMatch(live, /check-certificate=no\b/, 'nunca desligar a validação TLS');
   assert.match(live, /:local tls "(yes-without-crl|yes)"/, 'validação de certificado ligada');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 2, 'GET e POST usam a validação');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 3, 'GET, ACK e aviso de esgotado usam a validação');
+  assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);
   assert.match(live, /X-Router-Key/);
@@ -146,7 +149,7 @@ test('Documentação: nome da rede e valores consistentes; sem segredos reais no
   const docs = ['README.md', ...docFiles].map(read).join('\n');
   assert.doesNotMatch(docs, /WIFI-[A-Z]/, 'nome de rede divergente');
   for (const f of docFiles) assert.ok(read('README.md').includes(f), `README não aponta para ${f}`);
-  assert.match(docs, /Wi-Fi a Bordo/i);
+  assert.match(docs, /3TRC_Starlink|nome da rede/i);
   for (const secret of ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'ROUTER_SHARED_KEY', 'SITE_ORIGIN']) {
     assert.match(docs, new RegExp(secret)); assert.match(read('.env.example'), new RegExp(`^${secret}=`, 'm'));
   }
@@ -156,18 +159,26 @@ test('Documentação: nome da rede e valores consistentes; sem segredos reais no
   assert.ok(existsSync(path.join(ROOT, 'scripts/prepare-site.mjs')));
 });
 
-test('Repositório público: sem termos locais, e-mails reais, caminhos pessoais ou arquivos de segredo', () => {
-  const skipDirs = new Set(['node_modules', '.git', 'dist-site']);
-  const all = [];
-  (function scan(dir) {
-    for (const name of readdirSync(dir)) {
-      if (skipDirs.has(name)) continue;
-      const full = path.join(dir, name);
-      statSync(full).isDirectory() ? scan(full) : all.push(full);
-    }
-  })(ROOT);
+test('Repositório público: sem termos locais, e-mails reais, caminhos pessoais ou arquivos de segredo', async () => {
+  // Avalia exatamente o que o Git versionaria (rastreado + novo não ignorado). Arquivos locais
+  // ignorados (backups, router-dist, capturas) ficam de fora; se não houver Git, varre tudo.
+  const { spawnSync } = await import('node:child_process');
+  const g = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: ROOT, encoding: 'utf8' });
+  let all = [];
+  if (g.status === 0 && g.stdout.trim()) {
+    all = g.stdout.split(/\r?\n/).filter(Boolean).map((f) => path.join(ROOT, f)).filter((f) => existsSync(f));
+  } else {
+    const skipDirs = new Set(['node_modules', '.git', 'dist-site']);
+    (function scan(dir) {
+      for (const name of readdirSync(dir)) {
+        if (skipDirs.has(name)) continue;
+        const full = path.join(dir, name);
+        statSync(full).isDirectory() ? scan(full) : all.push(full);
+      }
+    })(ROOT);
+  }
   const self = path.join(ROOT, 'tests', 'static.test.mjs');
-  const banned = /escola|viagem|ônibus|onibus|\baluno/i;
+  const banned = /escola|viagem|\baluno/i;
   const email = /[A-Za-z0-9._%+-]+@(?!example\.|b\.co|email\.com|placeholder)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
   const personalPath = /[A-Za-z]:\Users\|\/Users\/[a-z]|\/home\/[a-z]/i;
   for (const f of all) {
@@ -206,12 +217,68 @@ test('Netlify: netlify.toml correto, build por variável pública e nenhuma chav
     assert.equal(viaRef.status, 0, viaRef.stderr);
     assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /https:\/\/abcdefghijklmnopqrst\.supabase\.co\/functions\/v1/);
     assert.match(readFileSync(path.join(out, '_headers'), 'utf8'), /connect-src https:\/\/abcdefghijklmnopqrst\.supabase\.co/);
-    assert.deepEqual(readdirSync(out).sort(), ['_headers', 'app.js', 'config.js', 'index.html', 'style.css']);
+    assert.deepEqual(readdirSync(out).sort(), ['_headers', 'app.js', 'art.svg', 'config.js', 'index.html', 'style.css']);
     for (const f of readdirSync(out)) {
       assert.doesNotMatch(readFileSync(path.join(out, f), 'utf8'), /service_role|MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY|sb_secret_|apikey/i, `segredo/chave em ${f}`);
     }
     const viaUrl = run(['', 'dist-site-test'], { SUPABASE_URL: 'https://zzzzzzzzzzzzzzzzzzzz.supabase.co' });
     assert.equal(viaUrl.status, 0, viaUrl.stderr);
     assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /zzzzzzzzzzzzzzzzzzzz\.supabase\.co/);
+  } finally { rmSync(out, { recursive: true, force: true }); }
+});
+
+test('Portal 3TRC_Starlink: textos exigidos, sem rodapé de suporte, ícones e ilustração leves e dentro da CSP', () => {
+  const html = read('site/index.html');
+  for (const t of ['3TRC_Starlink', 'Internet no ônibus', 'Acesse a internet', 'Pague via Pix e navegue por 5 horas', 'R$ 5,00', '5 horas',
+    'Seu e-mail', 'Digite seu e-mail', 'Gerar Pix', 'Internet<br>estável', 'Ativação<br>imediata', '5 horas<br>de acesso',
+    'Após o pagamento, o acesso é liberado automaticamente neste aparelho.']) assert.ok(html.includes(t), `texto ausente: ${t}`);
+  assert.doesNotMatch(html, /Wi-Fi a Bordo|WI-FI A BORDO/i, 'nome antigo do produto visível');
+  assert.doesNotMatch(html, /Suporte|WhatsApp|telefone|procure o respons/i, 'sem seção de suporte');
+  assert.match(html, /<label for="email"/); assert.match(html, /type="email"[^>]*required/);
+  // todas as telas do fluxo existem
+  for (const id of ['buy', 'pix', 'paid', 'done', 'ended', 'expired', 'loading', 'invalid', 'feedback', 'buymore']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const t of ['Seu tempo de internet acabou', 'Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.', 'R$ 5,00</span><span class="offer-dash"', 'Comprar mais 5 horas']) assert.ok(html.includes(t), `tela de tempo esgotado sem: ${t}`);
+  const svg = read('site/art.svg');
+  assert.ok(svg.length < 6000, `ilustração com ${svg.length} bytes`);
+  assert.doesNotMatch(svg, /<script|<foreignObject|href=|xlink|style=|on[a-z]+=/i, 'SVG sem scripts, links ou estilos inline');
+  assert.match(read('site/style.css'), /url\(\/art\.svg\)/);
+  assert.doesNotMatch(read('site/style.css'), /@import|url\(\s*['"]?https?:/);
+  assert.match(read('site/app.js'), /const idle = fromExpired \? 'Comprar mais 5 horas' : 'Gerar Pix'/, 'botões voltam ao texto original');
+  assert.doesNotMatch(read('site/app.js'), /location\.(href|replace|assign)\s*=|window\.open|document\.cookie/, 'o portal nunca redireciona (sem loop com o Hotspot) nem usa cookies');
+});
+
+test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro e nunca grava a chave', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { rmSync } = await import('node:fs');
+  const script = path.join(ROOT, 'scripts', 'prepare-router.mjs');
+  const base = { ...process.env }; for (const k of ['PORTAL_URL', 'SUPABASE_PROJECT_REF', 'HOTSPOT_USER_PROFILE', 'HOTSPOT_SERVER_PROFILE', 'TLS_MODE', 'POLL_INTERVAL', 'ROUTER_OUT']) delete base[k];
+  const run = (env) => spawnSync(process.execPath, [script], { cwd: ROOT, env: { ...base, ROUTER_OUT: 'router-dist-test', TEST_MAC: 'BA:28:2A:91:55:50', ...env }, encoding: 'utf8' });
+  const ok = { PORTAL_URL: 'https://portal-exemplo.netlify.app', SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst', HOTSPOT_USER_PROFILE: 'plano-5h', HOTSPOT_SERVER_PROFILE: 'hsprof1' };
+  const out = path.join(ROOT, 'router-dist-test');
+  try {
+    assert.equal(run({}).status, 1, 'sem variáveis obrigatórias');
+    for (const bad of [{ TLS_MODE: 'no' }, { PORTAL_URL: 'http://inseguro.exemplo' }, { PORTAL_URL: 'https://x.exemplo/caminho' }, { SUPABASE_PROJECT_REF: 'SEU-PROJETO' },
+      { HOTSPOT_USER_PROFILE: 'plano 5h; /system reset-configuration' }, { HOTSPOT_SERVER_PROFILE: '"' }, { POLL_INTERVAL: '20 segundos' }]) {
+      assert.equal(run({ ...ok, ...bad }).status, 1, JSON.stringify(bad));
+    }
+    const r = run(ok); assert.equal(r.status, 0, r.stderr);
+    const f = (n) => readFileSync(path.join(out, n), 'utf8');
+    const poll = f('hotspot-poll.rsc');
+    assert.match(poll, /:local profile "plano-5h"/); assert.doesNotMatch(poll, /wifi-5h/);
+    assert.match(poll, /https:\/\/abcdefghijklmnopqrst\.supabase\.co\/functions\/v1\/router-sync/);
+    assert.match(poll, /:local tls "yes-without-crl"/); assert.doesNotMatch(poll, /check-certificate=no\b/);
+    assert.match(poll, /:local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"/, 'chave só como placeholder');
+    assert.equal((f('login.html').match(/https:\/\/portal-exemplo\.netlify\.app/g) || []).length, 3);
+    assert.doesNotMatch(f('login.html') + poll + f('diagnostico.rsc'), /https:\/\/SEU-|SEU-PROJETO\.supabase|SEU-SITE\.netlify\.app\/\?/);
+    const shortG = f('ROTEIRO-CURTO.txt');
+    for (const t of ['plano-5h', 'hsprof1', 'login.html.original', 'ROLLBACK', 'o:', 'Seu tempo de internet acabou', 'NÃO repita']) assert.ok(shortG.includes(t), `roteiro curto sem "${t}"`);
+    assert.doesNotMatch(shortG, /user profile add|walled-garden ip add|\/certificate import|\/system reset|login-by=/i, 'roteiro curto não refaz o que já foi comprovado');
+    assert.match(f('CHECKLIST-MERCADO-PAGO.txt'), /NÃO ativa o webhook[\s\S]*Pagamentos \(payment\)/);
+    const guide = f('INSTALACAO-WINBOX.txt');
+    for (const t of ['plano-5h', 'hsprof1', 'login-by', 'ROLLBACK', 'VERIFICAÇÃO', 'TESTE-MANUAL-1', 'teste-mac', 'NÃO remova: o perfil plano-5h']) assert.ok(guide.includes(t), `roteiro sem "${t}"`);
+    assert.doesNotMatch(guide, /user profile add|walled-garden ip add|\/certificate import|\/system reset/i, 'não recria perfil, Walled Garden nem certificado; sem reset');
+    assert.match(f('CHECKLIST-MERCADO-PAGO.txt'), /MP_ACCESS_TOKEN[\s\S]*MP_WEBHOOK_SECRET[\s\S]*mp-webhook/);
+    const keyLike = /(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{43}/; // 43 caracteres base64url com letra e dígito
+    for (const n of readdirSync(out)) assert.doesNotMatch(f(n), keyLike, `possível chave em ${n}`);
   } finally { rmSync(out, { recursive: true, force: true }); }
 });

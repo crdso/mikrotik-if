@@ -23,8 +23,10 @@ export class RouterSim {
     this.acks = [];
     this.ignoredLines = 0;
     this.busy = false;        // variável global (some no reboot)
+    this.expSent = '';        // variável global wifiExpSent (some no reboot)
+    this.expReports = [];     // avisos de esgotado enviados (para os testes)
   }
-  reboot() { this.busy = false; this.failedPolls = 0; this.acks = []; } // usuários e uptime persistem
+  reboot() { this.busy = false; this.failedPolls = 0; this.acks = []; this.expSent = ''; } // usuários e uptime persistem
 
   // Mesma lógica de fatiamento por posição do script.
   static parseLine(line) {
@@ -62,8 +64,26 @@ export class RouterSim {
         if (this.dropAcks > 0) { this.dropAcks--; continue; }
         this.acks.push((await this.h.routerAckForm(o.oid, o.mac)).status);
       }
+      await this.reportExhausted();
       return { ok: true };
     } finally { this.busy = false; }
+  }
+
+  // Espelha o bloco "credito ESGOTADO" do script: avisa quem atingiu o limite, uma vez por esgotamento.
+  async reportExhausted() {
+    const keep = [], toRep = [];
+    for (const [name, u] of this.users) {
+      if (!u.comment.includes('o:')) continue;
+      if (u.limit > 0 && u.uptime + 10 >= u.limit && name.length === 17) { // margem de 10 s (:local expMargin)
+        if (!this.expSent.includes(name)) { if (toRep.length < 10) toRep.push(name); } else keep.push(name);
+      }
+    }
+    if (toRep.length) {
+      const r = await this.h.routerReportExpired(toRep.join(',') + ',');
+      this.expReports.push({ macs: toRep, status: r.status });
+      if (r.status === 200) keep.push(...toRep); // se falhar, tenta de novo no próximo ciclo
+    }
+    this.expSent = keep.length ? keep.join(',') + ',' : '';
   }
 
   // O passageiro usa N segundos (o Hotspot corta no limit-uptime).

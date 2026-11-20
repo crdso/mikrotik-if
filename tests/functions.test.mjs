@@ -49,7 +49,7 @@ test('create-payment: o navegador NÃO consegue alterar preço, descrição ou m
   const c = h.mp.creates()[0];
   assert.equal(c.body.transaction_amount, 5);
   assert.equal(c.body.payment_method_id, 'pix');
-  assert.equal(c.body.description, 'Wi-Fi a Bordo - 5 horas');
+  assert.equal(c.body.description, '3TRC_Starlink - 5 horas');
   assert.equal(c.body.external_reference, r.data.order_id);
 });
 
@@ -311,7 +311,8 @@ test('payment-status: resposta pública mínima (sem MAC, payment_id ou token)',
   const { order } = await pendingOrder();
   const r = await h.status(order);
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.data).sort(), ['internet_ready', 'router_online', 'seconds_left', 'status']);
+  assert.deepEqual(Object.keys(r.data).sort(), ['device_credit', 'internet_ready', 'router_online', 'seconds_left', 'status']);
+  assert.equal(r.data.device_credit, null, 'pedido ainda não liberado não tem estado de crédito');
   assert.equal(r.data.status, 'pending'); assert.equal(r.data.internet_ready, false);
   assert.doesNotMatch(JSON.stringify(r.data), /AA:BB|payment_id|read_token/);
 });
