@@ -659,6 +659,13 @@
       try { await api('transfer', { from: p.mac, to }); flash('ok', `Acesso transferido para ${to}. Comandos enviados ao roteador.`); sentAt = Date.now(); } catch (e) { flash('error', e.message); }
       load();
     }
+    async function doReset(p) {
+      if (!window.confirm(`EXCLUIR o acesso de ${p.full_name || p.mac} (${p.mac})?
+
+O aparelho volta ao começo (aguardando liberação ou Pix), sai do "acesso encerrado" e perde qualquer acesso atual. Pagamentos ficam registrados.`)) return;
+      try { await api('device_reset', { mac: p.mac }); flash('ok', 'Aparelho zerado. Ele volta à tela de espera em alguns segundos.'); } catch (e) { flash('error', e.message); }
+      load();
+    }
     if (endBtn) endBtn.addEventListener('click', async () => {
       const c = window.prompt('ENCERRAR A VIAGEM: todos os acessos liberados (pré-pagos, Pix e transferidos) serão revogados agora. O histórico e os pagamentos ficam guardados.\n\nPara confirmar, digite ENCERRAR:', '');
       if (c === null) return;
@@ -681,6 +688,7 @@
         }
         out.push(b('block', 'Bloquear', 'danger'));
       }
+      out.push(h('button', { class: 'btn sm ghost danger', type: 'button', text: 'Excluir', onclick: () => doReset(p) }));
       return h('div', { class: 'row-actions' }, out);
     }
     const ageS = (iso, now) => (iso ? Math.max(0, Math.round((now - Date.parse(iso)) / 1000)) : null);

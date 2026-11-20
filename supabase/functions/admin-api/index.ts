@@ -8,7 +8,7 @@ import {
   HttpError, browserAllowed, cors, env, isUuid, json, preflight, readJson, rpc,
 } from '../_shared/common.ts';
 
-const ADMIN_ONLY = new Set(['plan_save', 'setting_set', 'audit', 'passenger_delete', 'personal_purge', 'device_action', 'transfer', 'end_trip']);
+const ADMIN_ONLY = new Set(['plan_save', 'setting_set', 'audit', 'passenger_delete', 'personal_purge', 'device_action', 'transfer', 'end_trip', 'device_reset']);
 const PEOPLE_FILTERS = new Set(['all', 'online', 'offline', 'waiting', 'unidentified', 'active', 'problem', 'blocked', 'revoked', 'pix_pending', 'manual', 'pix']);
 const DEVICE_ACTIONS = new Set(['grant', 'kick', 'revoke', 'block', 'unblock', 'reauth']);
 const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
@@ -110,6 +110,12 @@ async function handleAction(action, input, who) {
       const to = String(input?.to ?? '').toUpperCase();
       if (!MAC_RE.test(from) || !MAC_RE.test(to) || from === to) throw new HttpError(400, 'Aparelhos inválidos.');
       return rpc('hotspot_admin_transfer', { p_actor: who.id, p_actor_email: who.email, p_from: from, p_to: to });
+    }
+
+    case 'device_reset': {
+      const mac = String(input?.mac ?? '').toUpperCase();
+      if (!MAC_RE.test(mac)) throw new HttpError(400, 'Aparelho inválido.');
+      return rpc('hotspot_admin_device_reset', { p_actor: who.id, p_actor_email: who.email, p_mac: mac });
     }
 
     case 'end_trip':
