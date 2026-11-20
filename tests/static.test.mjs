@@ -264,8 +264,10 @@ test('Portal Wifi a Bordo: fluxo da viagem (cadastro -> Aguardando liberação +
   const js = read('site/app.js');
   assert.doesNotMatch(js, /localStorage|sessionStorage|document\.cookie/, 'o estado vem do servidor, nunca do navegador');
   assert.match(js, /api\('passenger\?mac=' \+ encodeURIComponent\(mac\)\)/, 'estado do aparelho consultado no servidor');
-  assert.match(js, /post\('create-payment', \{ mac \}\)/, 'o navegador envia só o aparelho; preço e produto são do servidor');
-  assert.doesNotMatch(js, /price_cents:|grant_seconds:|amount:|plan_id:/, 'preço e duração nunca são enviados pelo navegador');
+  assert.match(js, /post\('create-payment', testPlanId \? \{ mac, plan_id: testPlanId \} : \{ mac \}\)/,'o navegador envia só o aparelho; preço e produto são do servidor');
+  assert.doesNotMatch(js, /price_cents:|grant_seconds:|amount:/, 'preço e duração nunca são enviados pelo navegador');
+  assert.deepEqual((js.match(/plan_id:[^,}]*/g) || []).map((x) => x.trim()),['plan_id: testPlanId'], 'só o identificador do plano do link de teste');
+  assert.match(js, /TEST_PLAN \? all\.find\(\(x\) => x\.id === TEST_PLAN\)/, 'plano de teste só aparece com o link');
   assert.doesNotMatch(js, /location\.(href|replace|assign)\s*=|window\.open/, 'o portal nunca redireciona (sem loop com o Hotspot)');
   assert.match(js, /s\.access === 'active' && s\.internet\) \{ enterDone\(\)/, '"liberado" só com a sessão autenticada confirmada pelo roteador');
 });

@@ -23,6 +23,8 @@
   let unknownSince = 0;
   let editing = false;
   let price = 'R$ 25,00';
+  const TEST_PLAN = /^[0-9a-f-]{36}$/i.test(params.get('plano') || '') ? params.get('plano').toLowerCase() : '';
+  let testPlanId = '';
 
   // ---- interface -----------------------------------------------------------
   function show(name) { PANELS.forEach((p) => { $(p).hidden = p !== name; }); $('feedback').hidden = true; }
@@ -167,7 +169,8 @@
   async function openPix(silent) {
     $('pay').disabled = true; $('paylabel').textContent = 'Gerando Pix…';
     try {
-      const r = await post('create-payment', { mac });
+      // Link de teste (?plano=<id>): envia SÓ o identificador; preço e produto continuam decididos pelo servidor.
+      const r = await post('create-payment', testPlanId ? { mac, plan_id: testPlanId } : { mac });
       if (r.status === 'paid') { order = { order_id: r.order_id, read_token: r.read_token }; enterProvisioning(state, true); schedule(FAST_MS); return; }
       order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code, qr_code_base64: r.qr_code_base64,
         deadline: typeof r.seconds_left === 'number' ? Date.now() + r.seconds_left * 1000 : null };
@@ -198,7 +201,10 @@
   async function loadPrice() {
     try {
       const r = await api('plans');
-      const p = (r.plans || []).find((x) => x.is_default) || (r.plans || [])[0];
+      const all = r.plans || [];
+      const test = TEST_PLAN ? all.find((x) => x.id === TEST_PLAN) : null; // plano de teste: só via link, nunca na tela padrão
+      if (test) testPlanId = test.id;
+      const p = test || all.find((x) => x.is_default) || all[0];
       if (p) {
         price = money(p.price_cents);
         $('pricea').textContent = price;
