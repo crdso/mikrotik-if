@@ -33,6 +33,7 @@ export async function handler(req) {
         stuck: st?.stuck === true,
         pix_pending: st?.pix_pending === true,
         router_online: st?.router_online === true,
+        expires_at: typeof st?.expires_at === 'string' ? st.expires_at : null,
       }, 200, headers);
     }
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);

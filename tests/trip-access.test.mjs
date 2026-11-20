@@ -399,3 +399,23 @@ test('roteador fora do ar: liberar e logo revogar deixa só o comando de revoga�
   router.online = true; await router.poll();
   assert.equal(router.canBrowseNow(MAC_A), false);
 });
+
+test('tempo corrido: plano de 4 h pago acaba 4 h depois do pagamento, usando ou não; comprar de novo soma; vencido pode comprar', async () => {
+  await h.q("update public.hotspot_plans set active = false, is_default = false");
+  await h.q("insert into public.hotspot_plans (name, price_cents, grant_seconds, active, is_default, wall_clock) values ('4 horas', 300, 14400, true, true, true)");
+  await onboard(MAC_A);
+  const p = await pix(MAC_A); await p.approve(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), true); assert.equal(router.users.get(MAC_A).limit, 0, 'sem contagem de uso no roteador');
+  const exp = (await access(MAC_A)).expires_at; const secs = (new Date(exp) - Date.now()) / 1000;
+  assert.ok(secs > 14390 && secs <= 14400, 'fim = pagamento + 4 h');
+  const p2 = await pix(MAC_A); await p2.approve();
+  const secs2 = (new Date((await access(MAC_A)).expires_at) - Date.now()) / 1000;
+  assert.ok(secs2 > 28790 && secs2 <= 28800, 'segunda compra soma');
+  await h.q("update public.hotspot_access set expires_at = now() - interval '1 second'");
+  await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false, 'venceu: o roteador desativa');
+  assert.equal((await portal(MAC_A)).access, 'none', 'portal volta à compra');
+  const again = await h.createPix(MAC_A);
+  assert.equal(again.status, 200, 'pode comprar de novo');
+  await h.useTripPlan();
+});

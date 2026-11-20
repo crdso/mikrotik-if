@@ -113,10 +113,10 @@ test('editar duração: pedidos antigos mantêm a duração; novo pedido usa a n
   assert.ok(first.created.order_id && second.created.order_id);
 });
 
-test('limites: preço fora de R$ 1,00–R$ 500,00, duração fora de 1 min–48 h, nomes e valores inválidos são recusados', async () => {
+test('limites: preço fora de R$ 1,00–R$ 500,00, duração fora de 1 min–30 dias, nomes e valores inválidos são recusados', async () => {
   for (const bad of [
     { price_cents: 99 }, { price_cents: 50001 }, { price_cents: 0 }, { price_cents: -100 }, { price_cents: 'abc' }, { price_cents: '5.5' },
-    { grant_seconds: 59 }, { grant_seconds: 172801 }, { grant_seconds: 0 }, { grant_seconds: -60 }, { grant_seconds: 'x' },
+    { grant_seconds: 59 }, { grant_seconds: 2592001 }, { grant_seconds: 0 }, { grant_seconds: -60 }, { grant_seconds: 'x' },
     { name: '' }, { name: '   ' }, { name: 'x'.repeat(61) }, { description: 'x'.repeat(201) }, { sort_order: 5000 },
   ]) {
     const r = await savePlan({ name: 'Teste', price_cents: 200, grant_seconds: 3600, ...bad });
