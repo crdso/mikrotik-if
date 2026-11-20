@@ -88,7 +88,13 @@ svg{display:block;flex:none}
 .spinner{width:44px;height:44px;margin:1vw auto 3vw;border-radius:50%;border:5px solid #cfe0f6;border-top-color:var(--accent);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spinner{animation:none}}
-.big-ok,.big-wifi{margin:0 auto 2.6vw}
+.big-ok,.big-wifi,.big-clock{margin:0 auto 2.6vw}
+.offer-box{display:flex;align-items:center;justify-content:center;gap:2.4vw;margin:4vw 0 0;padding:3vw 2vw;background:var(--tint);border-radius:4.4vw;font-weight:800;color:var(--navy2);line-height:1.1}
+.offer-price{font-size:clamp(24px,7.4vw,34px);letter-spacing:-.4px}
+.offer-dash{font-size:clamp(18px,5.6vw,26px);color:#7e9cc8}
+.offer-time{font-size:clamp(19px,5.8vw,26px)}
+#buymore{font-size:clamp(15px,4.8vw,21px);padding:0 8px;gap:2vw}
+#buymorelabel{white-space:nowrap}
 .center .btn-primary{margin-top:4.4vw}
 .noscript{margin:16px;text-align:center;color:#fff;font-weight:600}
 
@@ -116,4 +122,6 @@ svg{display:block;flex:none}
   .spinner{margin:4px auto 12px}
   .big-ok,.big-wifi{margin-bottom:10px}
   .center .btn-primary{margin-top:18px}
+  .offer-box{margin-top:16px;gap:10px;padding:12px 8px;border-radius:20px}
+  #buymore{font-size:21px;gap:12px;padding:0 16px}
 }

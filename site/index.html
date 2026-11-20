@@ -116,6 +116,33 @@
       </p>
     </div>
 
+    <!-- 4b. Tempo de internet esgotado (confirmado pelo MikroTik via backend) -->
+    <div id="expired" class="panel center" hidden>
+      <svg class="big-clock" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#fff1dc"/><circle cx="32" cy="32" r="30" fill="none" stroke="#e08a00" stroke-width="3"/><path d="M32 16v17l11 7" fill="none" stroke="#e08a00" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h2 class="title">Seu tempo de internet acabou</h2>
+      <p class="subtitle">Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.</p>
+      <p class="offer-box"><span class="offer-price">R$ 5,00</span><span class="offer-dash" aria-hidden="true">—</span><span class="offer-time">5 horas</span></p>
+      <button id="buymore" class="btn-primary" type="button">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">
+          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 5.2) rotate(45)"/>
+          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(18.8 12) rotate(45)"/>
+          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 18.8) rotate(45)"/>
+          <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(5.2 12) rotate(45)"/>
+        </svg>
+        <span id="buymorelabel">Comprar mais 5 horas</span>
+      </button>
+      <p class="notice small">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
+        <span>O pagamento é por Pix e as novas horas são liberadas automaticamente neste aparelho.</span>
+      </p>
+    </div>
+
+    <!-- 4c. Verificando o estado (portal reaberto por quem já teve crédito) -->
+    <div id="loading" class="panel center" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loadingtext" class="subtitle">Verificando seu acesso…</p>
+    </div>
+
     <!-- 5. Expirou / falhou -->
     <div id="ended" class="panel center" hidden>
       <h2 id="endedtitle" class="title">Pix expirado</h2>
