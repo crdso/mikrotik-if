@@ -32,4 +32,4 @@ O sistema operacional abre uma janela restrita para o portal. Limitações reais
 - O app do banco costuma **não abrir** de dentro da janela do portal cativo, e o Wi-Fi sem internet pode impedir o app de funcionar. Por isso o portal orienta: copiar o código, pagar com dados móveis ou em outro aparelho, voltar e aguardar.
 - Ao liberar a internet, iOS e Android costumam fechar o portal sozinhos; o botão "Abrir a internet" e a instrução de religar o Wi-Fi cobrem os casos em que não fecham.
 - Para o portal abrir, o Walled Garden não pode liberar domínios de teste de conectividade; para o portal funcionar, **precisa** liberar só o Netlify e o Supabase do projeto (veja [mikrotik.md](mikrotik.md)).
-- Fallback pelo navegador: se a janela automática não abrir, o passageiro acessa qualquer site HTTP (por exemplo, `neverssl.com`) e cai no portal.
+- Se a janela automática não abrir, o passageiro usa a opção de login da rede exibida pelo próprio aparelho (o portal não indica nenhum site externo).

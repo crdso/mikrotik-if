@@ -70,7 +70,7 @@
       return data;
     } catch (e) {
       if (e.status) throw e;
-      const n = new Error('Sem conexão com o servidor. Verifique se está no 3TRC_Starlink e tente de novo.');
+      const n = new Error('Sem conexão com o servidor. Verifique se está no Wifi a Bordo e tente de novo.');
       n.network = true; throw n;
     } finally { clearTimeout(to); }
   }
@@ -143,7 +143,7 @@
         if (LIMIT_HINT) { enterExpired(); return; } // o Hotspot já informou que o limite foi atingido
         $('loadingtext').textContent = 'Não consegui verificar seu acesso agora. Tentando de novo…';
       } else if (failures >= 3) {
-        const msg = 'Não consegui falar com o servidor. Confira se continua no 3TRC_Starlink; vou tentar de novo.';
+        const msg = 'Não consegui falar com o servidor. Confira se continua no Wifi a Bordo; vou tentar de novo.';
         if (!$('pix').hidden) setStatus(msg, 'error'); else if ($('done').hidden) feedback(msg);
       }
       schedule(Math.min(POLL_MS * (1 + failures), 20000));
