@@ -133,7 +133,7 @@
   function route(s) {
     if (s.access === 'blocked') { enterEnded('Aparelho bloqueado', 'Este aparelho foi bloqueado pelo organizador da viagem e não pode usar a internet. Fale com o organizador.'); return schedule(DONE_MS); }
     if (s.access === 'revoked') { enterEnded('Acesso encerrado', 'O acesso deste aparelho foi encerrado pelo organizador da viagem. Nenhuma cobrança nova é feita aqui; fale com o organizador.'); return schedule(DONE_MS); }
-    if (s.access === 'active' && s.internet) { enterDone(); return schedule(DONE_MS); }
+    if (s.access === 'active' && s.internet) { enterDone(); if (s.expires_at) $('donetext').textContent = 'Acesso liberado neste aparelho até ' + new Date(s.expires_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' (tempo corrido, contando mesmo sem usar).'; return schedule(DONE_MS); }
     if (s.access === 'active' || s.access === 'provisioning') { enterProvisioning(s, Boolean(order)); return schedule(FAST_MS); }
     provSince = 0;
     if (!s.known) {

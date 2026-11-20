@@ -197,6 +197,7 @@ async function handleAction(action, input, who) {
         price_cents: String(plan.price_cents ?? ''),
         grant_seconds: String(plan.grant_seconds ?? ''),
         active: plan.active === true, highlight: plan.highlight === true, is_default: plan.is_default === true,
+        unlimited: plan.unlimited === true, wall_clock: plan.wall_clock === true,
         sort_order: Number.isInteger(plan.sort_order) ? plan.sort_order : 0,
       };
       if (clean.id !== null && !isUuid(clean.id)) throw new HttpError(400, 'Plano inválido.');

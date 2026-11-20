@@ -459,8 +459,10 @@
       desc: h('input', { class: 'inp', value: p.description || '', maxlength: '200', id: 'pd', placeholder: 'Opcional' }),
       price: h('input', { class: 'inp', value: (p.price_cents / 100).toFixed(2).replace('.', ','), inputmode: 'decimal', id: 'pp' }),
       amount: h('input', { class: 'inp', type: 'number', min: '1', step: '1', value: String(inHours ? p.grant_seconds / 3600 : Math.round(p.grant_seconds / 60)), id: 'pa' }),
-      unit: h('select', { class: 'sel', 'aria-label': 'Unidade' }, h('option', { value: '3600', text: 'horas', selected: inHours }), h('option', { value: '60', text: 'minutos', selected: !inHours })),
+      unit: h('select', { class: 'sel', 'aria-label': 'Unidade' }, h('option', { value: '86400', text: 'dias' }), h('option', { value: '3600', text: 'horas', selected: inHours }), h('option', { value: '60', text: 'minutos', selected: !inHours })),
       sort: h('input', { class: 'inp', type: 'number', step: '1', value: String(p.sort_order), id: 'po' }),
+      unl: h('input', { type: 'checkbox', checked: p.unlimited === true, id: 'pun' }),
+      wall: h('input', { type: 'checkbox', checked: isNew || p.wall_clock === true, id: 'pwc' }),
       active: h('input', { type: 'checkbox', checked: p.active, id: 'pac' }), high: h('input', { type: 'checkbox', checked: p.highlight, id: 'phi' }), def: h('input', { type: 'checkbox', checked: p.is_default, id: 'pde' }),
     };
     const err = h('div', { class: 'note error', role: 'alert', hidden: true });
@@ -469,12 +471,14 @@
     const close = () => overlay.remove();
     const form = h('form', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': isNew ? 'Novo plano' : 'Editar plano', novalidate: true },
       h('h2', { text: isNew ? 'Novo plano' : 'Editar plano — ' + p.name }),
-      isNew ? null : h('p', { class: 'muted', text: `Valor atual: ${money(p.price_cents)} · ${planDur(p.grant_seconds)}` }),
+      isNew ? null : h('p', { class: 'muted', text: `Valor atual: ${money(p.price_cents)} · ${p.unlimited ? "Ilimitado" : planDur(p.grant_seconds)}` }),
       h('div', { class: 'note info', text: 'Alterações de preço ou duração valem só para compras futuras. Pagamentos e Pix pendentes já criados mantêm o valor e a duração originais.' }),
       h('label', { for: 'pn', class: 'lbl', text: 'Nome do plano' }), f.name,
       h('label', { for: 'pd', class: 'lbl', text: 'Descrição (opcional)' }), f.desc,
       h('div', { class: 'row2' }, h('div', null, h('label', { for: 'pp', class: 'lbl', text: 'Valor (R$)' }), f.price),
         h('div', null, h('label', { for: 'pa', class: 'lbl', text: 'Duração' }), h('div', { class: 'inline' }, f.amount, f.unit))),
+      h('label', { class: 'chk' }, f.unl, ' Ilimitado (toda a viagem — sem limite de tempo; a duração é ignorada)'),
+      h('label', { class: 'chk' }, f.wall, ' Tempo corrido (conta sempre a partir do pagamento, usando ou não)'),
       h('label', { for: 'po', class: 'lbl', text: 'Ordem de exibição (menor aparece primeiro)' }), f.sort,
       h('label', { class: 'chk' }, f.active, ' Ativo (aparece para os passageiros)'),
       h('label', { class: 'chk' }, f.high, ' Destacar como "Mais popular"'),
@@ -487,11 +491,11 @@
       const fail = (m) => { err.hidden = false; err.textContent = m; };
       if (!f.name.value.trim()) return fail('Informe o nome do plano.');
       if (cents == null || cents < 100 || cents > 50000) return fail('O valor deve estar entre R$ 1,00 e R$ 500,00.');
-      if (!Number.isInteger(secs) || secs < 60 || secs > 172800) return fail('A duração deve estar entre 1 minuto e 48 horas.');
+      if (!f.unl.checked && (!Number.isInteger(secs) || secs < 60 || secs > 2592000)) return fail('A duração deve estar entre 1 minuto e 30 dias.');
       if (f.def.checked && !f.active.checked) return fail('O plano padrão precisa estar ativo.');
       saveBtn.disabled = true; saveBtn.textContent = 'Salvando…'; err.hidden = true;
       try {
-        await api('plan_save', { plan: { id: isNew ? null : p.id, name: f.name.value.trim(), description: f.desc.value.trim() || null, price_cents: cents, grant_seconds: secs,
+        await api('plan_save', { plan: { id: isNew ? null : p.id, name: f.name.value.trim(), description: f.desc.value.trim() || null, price_cents: cents, grant_seconds: f.unl.checked ? 172800 : secs, unlimited: f.unl.checked, wall_clock: f.wall.checked,
           active: f.active.checked, highlight: f.high.checked, is_default: f.def.checked, sort_order: Number.parseInt(f.sort.value, 10) || 0 } });
         close(); onSaved();
       } catch (ex) { fail(ex.message); saveBtn.disabled = false; saveBtn.textContent = isNew ? 'Criar plano' : 'Salvar alterações'; }
@@ -506,7 +510,7 @@
       clear(out).append(skeleton(4));
       try {
         const r = await api('plans');
-        const rows = r.plans.map((p) => ({ cells: [h('div', null, h('strong', { text: p.name }), p.description ? h('div', { class: 'muted small', text: p.description }) : null), money(p.price_cents), planDur(p.grant_seconds),
+        const rows = r.plans.map((p) => ({ cells: [h('div', null, h('strong', { text: p.name }), p.description ? h('div', { class: 'muted small', text: p.description }) : null), money(p.price_cents), p.unlimited ? "Ilimitado" : planDur(p.grant_seconds) + (p.wall_clock ? " corridas" : " de uso"),
           h('span', { class: 'badges' }, badge(p.active ? 'Ativo' : 'Inativo', p.active ? 'green' : 'gray'), p.is_default ? badge('Padrão', 'blue') : null, p.highlight ? badge('Mais popular', 'amber') : null),
           String(p.sales), money(p.revenue_cents), p.last_sale_at ? fmtDT(p.last_sale_at) : '—', String(p.sort_order),
           canEdit ? h('button', { class: 'btn ghost sm', type: 'button', onclick: () => planForm(p, load) }, 'Editar') : null] }));
