@@ -129,7 +129,9 @@ export async function handler(req) {
         payer: { email },
         external_reference: orderId,
         notification_url: `${env('SUPABASE_URL')}/functions/v1/mp-webhook`,
-        date_of_expiration: mpDate(expiresAt),
+        // O Mercado Pago cancela na hora ("expired") Pix com prazo curto (5 min foi rejeitado em produção): ele recebe
+        // 30 min; a validade de 5 min vale aqui (expires_at). Pago depois disso, o pagamento ainda é aplicado.
+        date_of_expiration: mpDate(new Date(Date.now() + Math.max(PIX_TTL_MINUTES, 30) * 60 * 1000)),
       }, orderId); // X-Idempotency-Key = id do pedido
     } catch (e) {
       await rpc('hotspot_fail_order', { p_order_id: orderId }).catch(() => {});
