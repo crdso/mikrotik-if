@@ -267,7 +267,8 @@ test('Portal Wifi a Bordo: fluxo da viagem (cadastro -> Aguardando liberação +
   assert.match(js, /post\('create-payment', testPlanId \? \{ mac, plan_id: testPlanId \} : \{ mac \}\)/,'o navegador envia só o aparelho; preço e produto são do servidor');
   assert.doesNotMatch(js, /price_cents:|grant_seconds:|amount:/, 'preço e duração nunca são enviados pelo navegador');
   assert.deepEqual((js.match(/plan_id:[^,}]*/g) || []).map((x) => x.trim()),['plan_id: testPlanId'], 'só o identificador do plano do link de teste');
-  assert.match(js, /TEST_PLAN \? all\.find\(\(x\) => x\.id === TEST_PLAN\)/, 'plano de teste só aparece com o link');
+  assert.match(js, /box\.hidden = all\.length < 2;/, 'com 2+ planos ativos o passageiro escolhe');
+  assert.match(read('site/index.html'), /id="plans"/);
   assert.doesNotMatch(js, /location\.(href|replace|assign)\s*=|window\.open/, 'o portal nunca redireciona (sem loop com o Hotspot)');
   assert.match(js, /s\.access === 'active' && s\.internet\) \{ enterDone\(\)/, '"liberado" só com a sessão autenticada confirmada pelo roteador');
 });

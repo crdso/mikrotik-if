@@ -154,7 +154,7 @@
                 :if (([:pick $line 38 39] != " ") || ([:pick $line 40 41] != " ")) do={ :set valid false }
                 :foreach p in={2;5;8;11;14} do={ :if ([:pick $mac $p ($p + 1)] != ":") do={ :set valid false } }
                 :foreach p in={8;13;18;23} do={ :if ([:pick $cid $p ($p + 1)] != "-") do={ :set valid false } }
-                :if (($k != "G") && ($k != "R") && ($k != "K") && ($k != "A")) do={ :set valid false }
+                :if (($k != "G") && ($k != "R") && ($k != "K") && ($k != "A") && ($k != "T")) do={ :set valid false }
                 :if ($valid) do={
                     :local res "err"
                     :do {
@@ -168,6 +168,21 @@
                             :do { /file remove [/file find where name=($hdir . "/hsx-" . [:pick $mac 0 2] . "-" . [:pick $mac 3 5] . "-" . [:pick $mac 6 8] . "-" . [:pick $mac 9 11] . "-" . [:pick $mac 12 14] . "-" . [:pick $mac 15 17] . ".txt")] } on-error={ }
                             :set wifiHealDone ($wifiHealDone . $mac . ",")
                             :set res [$heal m=$mac]
+                            :if ($res = "err") do={ :set res "ok" }
+                        }
+                        :if ($k = "T") do={
+                            # Cortesia de 2 min para pagar o Pix: so cria/renova usuario de cortesia ("t:"); nunca mexe
+                            # em usuario de viagem, de horas antigas ou desativado (revogado/bloqueado).
+                            :local u [/ip hotspot user find where name=$mac]
+                            :if ([:len $u] = 0) do={
+                                /ip hotspot user add name=$mac password="" mac-address=$mac profile=$profile limit-uptime=2m comment="t:pix"
+                                :set res [$heal m=$mac]
+                            } else={
+                                :if (([/ip hotspot user get ($u->0) comment] = "t:pix") && ([/ip hotspot user get ($u->0) disabled] = false)) do={
+                                    /ip hotspot user set ($u->0) limit-uptime=([/ip hotspot user get ($u->0) uptime] + 2m)
+                                    :set res [$heal m=$mac]
+                                } else={ :set res "ok" }
+                            }
                             :if ($res = "err") do={ :set res "ok" }
                         }
                         :if ($k = "A") do={

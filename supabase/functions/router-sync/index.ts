@@ -22,7 +22,7 @@ import {
 
 const MAX_PER_POLL = 10;
 const MAX_CMDS = 10;
-const KIND = { grant: 'G', revoke: 'R', kick: 'K', reauth: 'A' };
+const KIND = { grant: 'G', revoke: 'R', kick: 'K', reauth: 'A', trial: 'T' }; // T = cortesia de 2 min para pagar o Pix
 const RESULTS = new Set(['ok', 'auth', 'login', 'nohost', 'err']); // respostas pequenas para o hardware antigo (64 MB de RAM)
 const text = (body, status = 200) => new Response(body, {
   status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },

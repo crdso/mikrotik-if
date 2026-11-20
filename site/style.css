@@ -174,3 +174,8 @@ svg{display:block;flex:none}
 .spinner.slow{animation-duration:2.2s}
 #wait .price-box{margin-top:4.4vw}
 #pay:disabled{cursor:wait}
+
+/* escolha de plano */
+.plan-choice{display:grid;gap:8px;margin-top:4vw}
+.plan-opt{min-height:46px;border:2px solid #b7cdea;border-radius:12px;background:#fff;color:var(--navy2);font:inherit;font-weight:800;font-size:16px;cursor:pointer}
+.plan-opt[aria-pressed="true"]{border-color:var(--accent);background:var(--tint);box-shadow:0 0 0 3px rgba(21,101,216,.18)}

@@ -35,6 +35,12 @@ async function settleOldPix(orderId, paymentId) {
   }
 }
 
+// Cortesia: 2 minutos de internet para abrir o app do banco e pagar (no máximo 1 a cada 60 min por aparelho).
+// Falha aqui nunca impede o Pix.
+async function trial(mac) {
+  await rpc('hotspot_trial_grant', { p_mac: mac }).catch((e) => console.error('create-payment trial', String(e)));
+}
+
 export async function handler(req) {
   const pf = preflight(req); if (pf) return pf;
   const headers = cors(req);
@@ -91,6 +97,7 @@ export async function handler(req) {
       case 'paid_waiting':
         return json({ order_id: r.order_id, read_token: r.read_token, status: 'paid' }, 200, headers);
       case 'existing':
+        await trial(mac);
         return json({
           order_id: r.order_id, read_token: r.read_token, status: 'pending', reused: true,
           qr_code: r.qr_code, qr_code_base64: r.qr_code_base64 || null, ticket_url: r.ticket_url || null,
@@ -145,8 +152,9 @@ export async function handler(req) {
       p_ticket_url: trans.ticket_url || null,
       p_expires_at: expiresAt.toISOString(),
     });
+    await trial(mac);
     return json({
-      order_id: orderId, read_token: r.read_token, status: 'pending',
+      order_id: orderId, read_token: r.read_token, status: 'pending', trial_seconds: 120,
       qr_code: trans.qr_code, qr_code_base64: trans.qr_code_base64 || null,
       ticket_url: trans.ticket_url || null,
       seconds_left: secondsLeft(expiresAt.toISOString()),
