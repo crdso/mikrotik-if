@@ -179,8 +179,8 @@
     } catch (e) {
       if (e.data && e.data.registration_required) { enterReg(false); return; }
       if (e.data && (e.data.already_active || e.data.blocked || e.data.revoked)) { schedule(0); return; }
-      if (!silent) feedback(e.message);
       if (state) enterWait(state); else show('loading');
+      if (!silent) feedback(e.message); // depois de trocar de tela (show() esconde o aviso)
       schedule(e.data && e.data.retry ? FAST_MS : WAIT_MS);
     } finally { $('pay').disabled = false; if (state) $('paylabel').textContent = state.pix_pending ? 'Ver meu Pix pendente' : 'Pagar ' + price + ' com Pix'; }
   }

@@ -220,15 +220,17 @@ test('trocar de plano quando o Pix antigo JÁ foi pago: nada é cancelado, o pag
   await router.poll(); assert.equal(router.remaining(MAC_A), 5 * H, 'a compra de 5 h não se perde');
 });
 
-test('trocar de plano: se o cancelamento falhar, não cria cobrança nova e informa (sem perder dinheiro)', async () => {
+test('trocar de plano: se o MP não confirmar o cancelamento, a troca acontece mesmo assim e o Pix antigo, se pago depois, ainda vale', async () => {
   const hour = (await savePlan({ name: '1 hora', price_cents: 200, grant_seconds: H, active: true })).data.plan;
-  await h.createPix(MAC_A); const oldPid = [...h.mp.payments.keys()].at(-1);
+  const old = await h.createPix(MAC_A); const oldPid = [...h.mp.payments.keys()].at(-1);
   const realHandle = h.mp.handle.bind(h.mp);
   h.mp.handle = async (url, init = {}) => ((init.method || 'GET').toUpperCase() === 'PUT' ? h.mp.json(500, { message: 'falha' }) : realHandle(url, init));
   const sw = await h.createPix(MAC_A, 'p@example.com', { plan_id: hour.id });
   h.mp.handle = realHandle;
-  assert.equal(sw.status, 409); assert.equal(h.mp.creates().length, 1);
-  assert.equal(h.mp.get(oldPid).status, 'pending'); assert.equal((await h.orders())[0].payment_status, 'pending');
+  assert.equal(sw.status, 200, 'o passageiro consegue trocar de plano (sem loop)'); assert.equal(h.mp.creates().length, 2);
+  assert.equal((await h.order(old.data.order_id)).payment_status, 'failed');
+  h.mp.approve(oldPid); await h.webhook(oldPid); // pagou o Pix antigo mesmo assim
+  assert.equal((await h.order(old.data.order_id)).payment_status, 'paid', 'dinheiro nunca se perde');
 });
 
 test('a mesma pessoa mantém o Pix pendente se pedir o mesmo plano, mesmo com preço editado depois', async () => {
