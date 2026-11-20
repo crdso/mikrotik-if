@@ -660,10 +660,16 @@
       load();
     }
     async function doReset(p) {
-      if (!window.confirm(`EXCLUIR o acesso de ${p.full_name || p.mac} (${p.mac})?
+      if (!window.confirm(`EXCLUIR o aparelho ${p.mac} (${p.full_name || 'não identificado'})?
 
-O aparelho volta ao começo (aguardando liberação ou Pix), sai do "acesso encerrado" e perde qualquer acesso atual. Pagamentos ficam registrados.`)) return;
-      try { await api('device_reset', { mac: p.mac }); flash('ok', 'Aparelho zerado. Ele volta à tela de espera em alguns segundos.'); } catch (e) { flash('error', e.message); }
+• Some da lista e perde cadastro (nome/e-mail), acesso, bloqueio e cortesias.
+• O roteador derruba a sessão; Pix pendente é encerrado e, se pago depois, NÃO libera acesso.
+• Pagamentos aprovados continuam na aba Pagamentos.
+• Se voltar, começa do zero (cadastro → aguardando → liberação ou Pix).`)) return;
+      try {
+        const r = await api('device_reset', { mac: p.mac });
+        flash('ok', `Aparelho excluído.${r.payments_kept ? ` ${r.payments_kept} pagamento(s) preservado(s) na aba Pagamentos.` : ''}${r.pix_pending_closed ? ' Pix pendente encerrado.' : ''}`);
+      } catch (e) { flash('error', e.message); }
       load();
     }
     if (endBtn) endBtn.addEventListener('click', async () => {
