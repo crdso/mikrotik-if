@@ -9,7 +9,8 @@
 //   $env:HOTSPOT_SERVER_PROFILE="hsprof1"     # perfil do SERVIDOR Hotspot que já existe
 //   node scripts/prepare-router.mjs
 //
-// Opcionais: TLS_MODE (yes-without-crl | yes; nunca "no"), POLL_INTERVAL (ex.: 20s), ROUTER_OUT.
+// Opcionais: TLS_MODE (yes-without-crl | yes; nunca "no"), POLL_INTERVAL (ex.: 20s), ROUTER_OUT,
+//            TEST_MAC (MAC do seu celular de teste, usado nos exemplos do roteiro).
 // A ROUTER_SHARED_KEY NUNCA entra em nenhum arquivo gerado: você a digita no WinBox.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -56,7 +57,8 @@ must(diag, 'SEU-PROJETO.supabase.co', 'diagnostico.rsc');
 diag = diag.replaceAll('SEU-PROJETO.supabase.co', apiHost);
 
 // ---- roteiro de instalação ---------------------------------------------------
-const MAC = 'AA:BB:CC:DD:EE:FF';
+const MAC = String(env.TEST_MAC || 'AA:BB:CC:DD:EE:FF').trim().toUpperCase();
+if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(MAC)) die('TEST_MAC inválido (use AA:BB:CC:DD:EE:FF, maiúsculas com dois-pontos).');
 const install = `=====================================================================
  INSTALAÇÃO NO MIKROTIK — RouterOS 6.48.x  (gerado por scripts/prepare-router.mjs)
 =====================================================================
@@ -198,6 +200,60 @@ REVERSÃO TOTAL (ordem inversa)
   NÃO remova: o perfil ${userProfile}, o Walled Garden (comment=wifi-a-bordo), o certificado importado.
 `;
 
+
+const shortGuide = `=====================================================================
+ ROTEIRO CURTO — o que FALTA no MikroTik  (gerado por scripts/prepare-router.mjs)
+=====================================================================
+Considera concluídos e comprovados no equipamento: diagnóstico, CA, "mac" no login-by de
+${serverProfile}, mac-auth-password vazio e o teste de login por MAC com corte por tempo.
+NÃO repita esses passos. Perfil de usuário reaproveitado: ${userProfile}. Walled Garden e certificado: já existem.
+Cada etapa abaixo tem verificação e rollback. A chave só no WinBox.
+
+A) LIMPAR O TESTE ANTERIOR (somente o que é teste)
+   /ip hotspot user print detail where name=${MAC} or comment~"teste"
+   Confira que listou SÓ o usuário de teste do seu celular. Então:
+   /ip hotspot active remove [find user=${MAC}]
+   /ip hotspot user remove [find name=${MAC}]
+   (Se aparecer outro usuário legítimo na lista, NÃO o remova.)
+
+B) PÁGINA DE LOGIN  (leva o aparelho ao portal e repassa o motivo da recusa, se houver)
+   1. /ip hotspot profile print detail where name=${serverProfile}     -> anote html-directory
+   2. WinBox > Files > <html-directory>/login.html : arraste para o PC (login.html.original)
+   3. Arraste "login.html" desta pasta para <html-directory>/ (substituir)
+   VERIFICAÇÃO: celular sem crédito abre ${portal}/?mac=...  (tela de compra)
+   ROLLBACK: devolva login.html.original para <html-directory>/login.html
+
+C) SCRIPT wifi-poll (ainda sem agendar)
+   System > Scripts > Add:  Name=wifi-poll ; Policy=read,write,test ; Source = hotspot-poll.rsc
+   Troque COLOQUE_A_MESMA_ROUTER_SHARED_KEY pela ROUTER_SHARED_KEY (a que já está no Supabase).
+   /system script run wifi-poll
+   /log print where message~"wifi-poll"
+   ESPERADO: nenhum erro. Me avise "script instalado": eu confiro no Supabase que o roteador consultou.
+   ROLLBACK: /system script remove [find name=wifi-poll]
+
+D) TESTE DE CRÉDITO SEM MERCADO PAGO (eu crio o crédito de teste de 3 min e limpo depois)
+   1. Me avise; eu insiro o crédito para ${MAC}.
+   2. /system script run wifi-poll
+   3. /ip hotspot user print detail where name=${MAC}
+      ESPERADO: limit-uptime=3m ; comment com "o:" + 8 caracteres ; o celular navega sem login.
+   4. Rode o script de novo (2): NADA deve mudar (sem horas duplicadas).
+   5. Aguarde cair (~3 min) e rode:  /system script run wifi-poll
+      Abra o portal no celular: deve mostrar "Seu tempo de internet acabou".
+      ANOTE a URL que o Hotspot abriu: se tiver "&err=..." me diga o texto.
+   6. Toque em "Comprar mais 5 horas" só para ver o Pix (NÃO pague). Eu limpo os dados de teste.
+   7. ACÚMULO: se quiser provar 3+3 min, me avise ANTES de o primeiro crédito acabar.
+
+E) AGENDAR  (só depois do D aprovado)
+   /system scheduler add name=wifi-poll interval=${interval} on-event="/system script run wifi-poll" start-time=startup policy=read,write,test
+   /system scheduler print
+   /log print where message~"wifi-poll"
+   ROLLBACK: /system scheduler remove [find name=wifi-poll]
+
+F) REINÍCIO (recomendado)
+   Com um usuário de teste que já usou ~2 min:  /system reboot
+   Verifique: scheduler voltou, usuário existe, TEMPO USADO preservado (/ip hotspot user print detail).
+`;
+
 const mp = `=====================================================================
  CHECKLIST FINAL — MERCADO PAGO (faça por ÚLTIMO)  (gerado por scripts/prepare-router.mjs)
 =====================================================================
@@ -210,10 +266,14 @@ Nenhum valor secreto deve ser colado em chats, arquivos ou no GitHub. Use soment
    - MP_ACCESS_TOKEN    : Mercado Pago > Seu negócio/Developers > Suas integrações > sua aplicação >
                           Credenciais de PRODUÇÃO > Access Token
    - MP_WEBHOOK_SECRET  : criado no passo 2 abaixo (Mercado Pago > Webhooks > "Chave secreta")
-2) WEBHOOK (Mercado Pago > Suas integrações > sua aplicação > Webhooks > Configurar notificações, MODO PRODUÇÃO)
-   - URL do webhook : https://${apiHost}/functions/v1/mp-webhook
-   - Evento         : Pagamentos (payment)
-   - Salve e copie a Chave secreta -> cadastre como MP_WEBHOOK_SECRET (passo 1).
+2) WEBHOOK — AÇÃO SEPARADA NO PAINEL DO MERCADO PAGO (cadastrar as 2 secrets no Supabase NÃO ativa o webhook)
+   Mercado Pago Developers > Suas integrações > sua aplicação > Webhooks > Configurar notificações:
+   - Aba/modo         : PRODUÇÃO (não "Teste")
+   - URL de produção  : https://${apiHost}/functions/v1/mp-webhook
+   - Evento           : Pagamentos (payment)   <- é o único evento necessário
+   - Salvar. O painel mostra a "Chave secreta" (assinatura): copie e cadastre como MP_WEBHOOK_SECRET (passo 1).
+   - Sem esse cadastro o Mercado Pago não avisa o pagamento; o portal ainda reconcilia por conta própria
+     em ~10 s, mas o webhook é o caminho principal e deve ficar ativo.
 3) VERIFICAÇÃO SEM COBRAR
    - Mercado Pago > Webhooks > "Simular notificação": a resposta NÃO pode ser 401
      (esperado: ignorada com payment_not_found). 401 = chave secreta errada.
@@ -233,7 +293,7 @@ Nenhum valor secreto deve ser colado em chats, arquivos ou no GitHub. Use soment
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
-const files = { 'login.html': login, 'hotspot-poll.rsc': poll, 'diagnostico.rsc': diag, 'INSTALACAO-WINBOX.txt': install, 'CHECKLIST-MERCADO-PAGO.txt': mp };
+const files = { 'login.html': login, 'hotspot-poll.rsc': poll, 'diagnostico.rsc': diag, 'ROTEIRO-CURTO.txt': shortGuide, 'INSTALACAO-WINBOX.txt': install, 'CHECKLIST-MERCADO-PAGO.txt': mp };
 for (const [name, content] of Object.entries(files)) writeFileSync(path.join(outDir, name), content);
 
 console.log(`Pronto: ${path.relative(root, outDir)}/  (${Object.keys(files).join(', ')})`);
