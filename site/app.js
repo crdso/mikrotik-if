@@ -175,6 +175,7 @@
       order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code, qr_code_base64: r.qr_code_base64,
         deadline: typeof r.seconds_left === 'number' ? Date.now() + r.seconds_left * 1000 : null };
       enterPix(); schedule(FAST_MS);
+      setText('status', 'Você ganhou 2 minutos de internet (liberados em até ~20 s) para abrir o app do banco e pagar. Se não pagar nesse tempo, a internet volta a ficar bloqueada.');
     } catch (e) {
       if (e.data && e.data.registration_required) { enterReg(false); return; }
       if (e.data && (e.data.already_active || e.data.blocked || e.data.revoked)) { schedule(0); return; }
@@ -198,19 +199,30 @@
     $('copy').textContent = ok ? 'Código copiado!' : 'Selecione e copie o código abaixo';
   }
 
+  // Todos os planos ativos aparecem para o passageiro escolher. O navegador envia só o identificador do plano
+  // escolhido; preço e produto são decididos pelo servidor.
+  const planText = (p) => (p.unlimited ? 'toda a viagem' : String(Math.round(p.grant_seconds / 3600)) + ' horas');
+  function choosePlan(p) {
+    testPlanId = p.id; price = money(p.price_cents);
+    $('pricea').textContent = price; $('pricetext').textContent = planText(p);
+    [...$('plans').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === p.id)));
+    if (state && current() === 'wait') enterWait(state);
+  }
   async function loadPrice() {
     try {
       const r = await api('plans');
       const all = r.plans || [];
-      const test = TEST_PLAN ? all.find((x) => x.id === TEST_PLAN) : null; // plano de teste: só via link, nunca na tela padrão
-      if (test) testPlanId = test.id;
-      const p = test || all.find((x) => x.is_default) || all[0];
-      if (p) {
-        price = money(p.price_cents);
-        $('pricea').textContent = price;
-        $('pricetext').textContent = p.unlimited ? 'toda a viagem' : String(Math.round(p.grant_seconds / 3600)) + ' horas';
-        if (state && current() === 'wait') enterWait(state);
+      const box = $('plans'); box.textContent = '';
+      for (const p of all) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'plan-opt'; b.dataset.id = p.id;
+        b.textContent = money(p.price_cents) + ' — ' + p.name;
+        b.addEventListener('click', () => choosePlan(p));
+        box.appendChild(b);
       }
+      box.hidden = all.length < 2;
+      const p = (TEST_PLAN && all.find((x) => x.id === TEST_PLAN)) || all.find((x) => x.is_default) || all[0];
+      if (p) choosePlan(p);
     } catch (_) { /* mantém o texto padrão */ }
   }
 
