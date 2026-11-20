@@ -29,7 +29,7 @@ test('create-payment: devolve Pix e envia ao MP exatamente R$ 5 com chave de ide
   assert.equal(r.data.status, 'pending');
   assert.match(r.data.qr_code, /^0002/);
   assert.ok(r.data.qr_code_base64);
-  assert.ok(r.data.seconds_left > 1700 && r.data.seconds_left <= 1800);
+  assert.ok(r.data.seconds_left > 240 && r.data.seconds_left <= 300);
   assert.equal(h.mp.creates().length, 1);
   const c = h.mp.creates()[0];
   assert.equal(c.body.transaction_amount, 5);
