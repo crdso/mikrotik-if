@@ -26,6 +26,7 @@ Registro público e **sem segredos** da auditoria do Wifi a Bordo (MikroTik, Acc
 - Cada mudança é reversível com um comando (`/ip service set ... disabled=no`, `/tool mac-server set allowed-interface-list=LAN`, `/ip firewall filter remove [find where comment~"wab-sec"]`, `/ip firewall filter set [find where action=fasttrack-connection] disabled=no`).
 
 ## Limites conhecidos
-- A lista de aparelhos presentes é *fail-open*: se o roteador parar de enviá-la por mais de 120 s, o checkout volta ao comportamento anterior para não interromper as vendas.
+- Sem fail-open silencioso (migração 202611220005): se o roteador parar de enviar a lista, o checkout passa a aceitar apenas MACs vistos nas últimas 24 h (`hosts_stale_window_seconds`); MACs inventados continuam barrados e compradores que já usaram o Wi-Fi continuam atendidos. Só antes do PRIMEIRO envio da lista (implantação inicial) o portão fica aberto (`no_feed`). Limpeza diária automática (`hotspot_maintenance`, chamada pelo router-sync) apaga pedidos falhos/expirados >30 dias e pendentes >7 dias; nunca apaga pagos/reembolsados.
+- WebFig (serviço `www`, porta 80 do roteador): restrito a 192.168.88.254/32; o Hotspot já redireciona a porta 80 de quem está no bridge para o portal (regra dinâmica `hotspot=local-dst`), então o portal não depende do serviço `www`.
 - Um passageiro **dentro** da rede ainda pode trocar o MAC do próprio aparelho; isso não dá internet grátis (o Hotspot exige crédito por MAC), mas pode gerar alguns pedidos extras (limite de 5 por MAC a cada 10 min).
 - Compartilhamento por notebook (NAT): ver `docs/compartilhamento.md`.
