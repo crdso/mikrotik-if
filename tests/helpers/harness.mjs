@@ -234,9 +234,12 @@ export async function createHarness() {
     async webhook(paymentId, opts = {}) { return read(await handlers.webhook(signedWebhook({ dataId: paymentId, ...opts }))); },
     routerHeaders: { 'x-router-key': ENV.ROUTER_SHARED_KEY },
     // fmt: 'json' (padrão nos testes antigos) ou 'text' (o formato real do roteador)
-    async routerPull(key = ENV.ROUTER_SHARED_KEY, fmt = 'json') {
+    // hosts: "MAC;MAC;" como o wifi-poll envia no cabeçalho X-Hosts (aparelhos presentes no Hotspot), ou null.
+    async routerPull(key = ENV.ROUTER_SHARED_KEY, fmt = 'json', hosts = null) {
       const q = fmt === 'json' ? '?fmt=json' : '';
-      return read(await handlers.routerSync(req(`${FN_BASE}/router-sync${q}`, { headers: key === null ? {} : { 'x-router-key': key }, origin: null })));
+      const headers = key === null ? {} : { 'x-router-key': key };
+      if (hosts !== null) headers['x-hosts'] = hosts;
+      return read(await handlers.routerSync(req(`${FN_BASE}/router-sync${q}`, { headers, origin: null })));
     },
     async routerRaw(path = '', init = {}) {
       return read(await handlers.routerSync(req(`${FN_BASE}/router-sync${path}`, { origin: null, ...init })));
