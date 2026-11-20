@@ -31,7 +31,9 @@ async function settleOldPix(orderId, paymentId) {
   await rpc('hotspot_apply_payment', paymentApplyArgs(orderId, payment));
   await recordFees(orderId, payment);
   if (['pending', 'in_process', 'authorized', 'in_mediation'].includes(payment.status)) {
-    throw new HttpError(409, 'Não foi possível trocar de plano agora. Tente novamente em instantes.');
+    // O MP ainda não confirmou o cancelamento: o pedido antigo é encerrado AQUI para o passageiro poder trocar de plano.
+    // Se ele for pago mesmo assim, o webhook/reconciliação aplica o pagamento (failed -> paid) e o acesso é liberado.
+    await rpc('hotspot_apply_payment', { ...paymentApplyArgs(orderId, payment), p_mp_status: 'cancelled', p_mp_status_detail: 'troca_de_plano' });
   }
 }
 
