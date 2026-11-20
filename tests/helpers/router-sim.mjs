@@ -108,24 +108,35 @@ export class RouterSim {
 
   // Espelha o bloco de comandos "C <id> <tipo> <MAC>" do script (mesmas posições).
   static parseCmd(line) {
-    if (line.length !== 58 || line.slice(0, 2) !== 'C ') return null;
+    if (line.length < 58 || line.length > 66 || line.slice(0, 2) !== 'C ') return null;
     const id = line.slice(2, 38), k = line[39], mac = line.slice(41, 58);
+    let cap = 0;
+    if (k === 'L') { if (line[58] !== ' ' || !/^\d+$/.test(line.slice(59))) return null; cap = Number(line.slice(59)); if (cap <= 0 || cap > 2592000) return null; }
+    else if (line.length !== 58) return null;
+    if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) return null;
     if (line[38] !== ' ' || line[40] !== ' ') return null;
     if (![2, 5, 8, 11, 14].every((p) => mac[p] === ':')) return null;
     if (![8, 13, 18, 23].every((p) => id[p] === '-')) return null;
-    if (!['G', 'R', 'K', 'A'].includes(k)) return null;
-    return { id, k, mac };
+    if (!['G', 'L', 'R', 'K', 'A', 'T'].includes(k)) return null;
+    return { id, k, mac, cap };
   }
   async applyCommand(line) {
     const c = RouterSim.parseCmd(line);
     if (!c) { this.ignoredLines++; return; }
     let res = 'err';
-    if (c.k === 'G') {
-      const u = this.users.get(c.mac);
-      if (!u) this.users.set(c.mac, { limit: 0, uptime: 0, comment: 'v:viagem', disabled: false });
+    if (c.k === 'G' || c.k === 'L') {
+      let u = this.users.get(c.mac);
+      if (!u) { u = { limit: 0, uptime: 0, comment: 'v:viagem', disabled: false }; this.users.set(c.mac, u); }
       else Object.assign(u, { limit: 0, comment: 'v:viagem', disabled: false });
+      if (c.k === 'L') Object.assign(u, { limit: u.uptime + c.cap, comment: 'v:tempo' }); // teto de USO = restante
       this.flags.delete(c.mac); this.healDone.add(c.mac);
-      res = this.heal(c.mac); if (res === 'err') res = 'ok';
+      res = this.heal(c.mac);
+    } else if (c.k === 'T') {
+      const u = this.users.get(c.mac);
+      if (!u) { this.users.set(c.mac, { limit: 120, uptime: 0, comment: 't:pix', disabled: false }); res = this.heal(c.mac); }
+      else if (u.comment === 't:pix' && !u.disabled) { u.limit = u.uptime + 120; this.sessions.delete(c.mac); res = this.heal(c.mac); }
+      else if (u.disabled) { Object.assign(u, { disabled: false, comment: 't:pix', limit: u.uptime + 120 }); this.sessions.delete(c.mac); res = this.heal(c.mac); }
+      else res = this.heal(c.mac);
     } else if (c.k === 'A') {
       const u = this.users.get(c.mac);
       if (u && !u.disabled) { this.healDone.add(c.mac); res = this.heal(c.mac); }

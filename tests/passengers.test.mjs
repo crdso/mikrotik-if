@@ -93,7 +93,7 @@ test('dica no portal: só dados MASCARADOS e só para aparelho presente na rede'
   assert.equal((await hint(MAC_A)).data.registered, false);
   await reg(MAC_A, 'João Carlos Silva', 'joao.silva@example.com');
   const ok = await hint(MAC_A);
-  assert.equal(ok.data.registered, true); assert.equal(ok.data.name_hint, 'João S.'); assert.equal(ok.data.email_hint, 'j***@example.com');
+  assert.equal(ok.data.registered, true); assert.equal(ok.data.name_hint, 'João'); assert.equal(ok.data.email_hint, undefined, 'sem dica de e-mail');
   assert.doesNotMatch(ok.text, /joao\.silva|Carlos/);
   assert.equal((await hint(MAC_B)).data.registered, false, 'aparelho que o roteador não vê');
   assert.equal((await read(await h.passenger(req(`${FN_BASE}/passenger?mac=lixo`)))).data.registered, false);

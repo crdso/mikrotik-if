@@ -52,7 +52,8 @@ test('Cenário B (falha real): Pix aprovado com o celular JÁ conectado — o ro
   assert.equal(p.c.status, 200); assert.equal(h.mp.creates()[0].body.transaction_amount, 25);
   assert.equal((await portal(MAC_A)).pix_pending, true);
   await router.poll();
-  assert.equal(router.canBrowseNow(MAC_A), false, 'Pix pendente não libera');
+  assert.equal(router.users.get(MAC_A).comment, 't:pix', 'Pix pendente: só a cortesia');
+  assert.equal(router.users.get(MAC_A).limit, 120, 'cortesia de 2 minutos de uso');
   await p.approve();
   assert.equal((await portal(MAC_A)).access, 'provisioning', 'pago != liberado');
   assert.equal((await row(MAC_A)).status, 'provisioning');
@@ -370,7 +371,7 @@ test('segurança: ações exigem admin; operador só lê; sem sessão 401; entra
 test('portal: estado por MAC só para aparelho presente e sem dados de colegas', async () => {
   await onboard(MAC_A);
   const st = await portal(MAC_A);
-  assert.equal(st.known, true); assert.equal(st.name_hint, 'Maria L.');
+  assert.equal(st.known, true); assert.equal(st.name_hint, 'Maria');
   assert.doesNotMatch(JSON.stringify(st), /maria@example|Souza|AA:BB/);
   const other = await portal(MAC_B);
   assert.equal(other.known, false); assert.equal(other.registered, false);
@@ -405,7 +406,7 @@ test('tempo corrido: plano de 4 h pago acaba 4 h depois do pagamento, usando ou 
   await h.q("insert into public.hotspot_plans (name, price_cents, grant_seconds, active, is_default, wall_clock) values ('4 horas', 300, 14400, true, true, true)");
   await onboard(MAC_A);
   const p = await pix(MAC_A); await p.approve(); await router.poll();
-  assert.equal(router.canBrowseNow(MAC_A), true); assert.equal(router.users.get(MAC_A).limit, 0, 'sem contagem de uso no roteador');
+  assert.equal(router.canBrowseNow(MAC_A), true); assert.ok(router.users.get(MAC_A).limit > 14390 && router.users.get(MAC_A).limit <= 14400, 'teto de uso = tempo restante (proteção sem servidor)');
   const exp = (await access(MAC_A)).expires_at; const secs = (new Date(exp) - Date.now()) / 1000;
   assert.ok(secs > 14390 && secs <= 14400, 'fim = pagamento + 4 h');
   const p2 = await pix(MAC_A); await p2.approve();
@@ -417,5 +418,153 @@ test('tempo corrido: plano de 4 h pago acaba 4 h depois do pagamento, usando ou 
   assert.equal((await portal(MAC_A)).access, 'none', 'portal volta à compra');
   const again = await h.createPix(MAC_A);
   assert.equal(again.status, 200, 'pode comprar de novo');
+  await h.useTripPlan();
+});
+
+
+// ============================== auditoria ==============================
+const wallPlan = async (secs = 14400) => {
+  await h.q("update public.hotspot_plans set active = false, is_default = false");
+  await h.q("insert into public.hotspot_plans (name, price_cents, grant_seconds, active, is_default, wall_clock) values ('Corrido', 300, $1, true, true, true)", [secs]);
+};
+
+test('cortesia: estado REAL no portal (preparando -> ativa), acaba após 2 min de uso, e o Pix pago a substitui por acesso definitivo', async () => {
+  await onboard(MAC_A);
+  const p = await pix(MAC_A);
+  assert.equal((await portal(MAC_A)).trial, 'preparing', 'não anuncia a cortesia antes do roteador confirmar');
+  await router.poll();
+  assert.equal((await portal(MAC_A)).trial, 'active');
+  assert.equal(router.canBrowseNow(MAC_A), true);
+  router.use(MAC_A, 120);
+  assert.equal(router.canBrowseNow(MAC_A), false, 'cortesia esgotada corta');
+  router.healWindow(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false, 'a reautenticação automática não renova a cortesia');
+  await p.approve(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), true); assert.equal(router.users.get(MAC_A).limit, 0, 'pago: sem limite');
+});
+
+test('cortesia falha honestamente: aparelho fora da rede -> "failed", nunca "ativa"', async () => {
+  await onboard(MAC_A); await pix(MAC_A);
+  router.disconnect(MAC_A); await router.poll();
+  assert.equal((await portal(MAC_A)).trial, 'failed');
+});
+
+test('cortesia: não vale para aparelho bloqueado ou com acesso; limite global por janela', async () => {
+  await onboard(MAC_A); await act(MAC_A, 'block');
+  assert.equal((await h.rpc('hotspot_trial_grant', { p_mac: MAC_A })).result, 'not_eligible');
+});
+
+test('renovação + estorno individual: estornar a 2a compra tira só o tempo dela; estornar a 1a mantém o tempo da 2a', async () => {
+  await wallPlan(3600);
+  await onboard(MAC_A);
+  const a = await pix(MAC_A); await a.approve(); await router.poll();
+  const b = await pix(MAC_A); await b.approve(); await router.poll();
+  const left = async () => (new Date((await access(MAC_A)).expires_at) - Date.now()) / 1000;
+  assert.ok((await left()) > 7190, '2 h somadas');
+  h.mp.set(b.pid, 'refunded', 'refunded'); await h.webhook(b.pid);
+  assert.ok((await left()) < 3610 && (await left()) > 3590, 'estorno da renovação tira só 1 h');
+  h.mp.set(a.pid, 'refunded', 'refunded'); await h.webhook(a.pid);
+  assert.equal((await access(MAC_A)).state, 'revoked', 'sem compra válida: encerra');
+  await h.useTripPlan();
+});
+
+test('renovação de plano ilimitado já ativo não trava novas compras (pedido marcado como liberado)', async () => {
+  await onboard(MAC_A);
+  const a = await pix(MAC_A); await a.approve(); await router.poll();
+  await h.q("update public.hotspot_orders set payment_status = 'pending', paid_at = null, provisioned_at = null where false");
+  assert.equal((await h.q("select count(*)::int n from public.hotspot_orders where payment_status = 'paid' and provisioned_at is null"))[0].n, 0);
+});
+
+test('reconciliação: revogação sem ACK e aparelho ainda autenticado -> nova revogação até o roteador cortar', async () => {
+  await onboard(MAC_A); await act(MAC_A, 'grant'); await router.poll();
+  router.dropCmdAcks = 99; await act(MAC_A, 'revoke');
+  router.online = false; // revoga no banco, mas o roteador "não aplicou"
+  await h.q("update public.hotspot_router_commands set status = 'failed' where kind = 'revoke'");
+  router.online = true; router.dropCmdAcks = 0; router.users.get(MAC_A).disabled = false; router.sessions.add(MAC_A);
+  await router.poll(); await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false, 'reconciliado sem depender do ACK antigo');
+});
+
+test('Pix pago DEPOIS de o organizador revogar não reativa o acesso (fica registrado para decisão manual)', async () => {
+  await onboard(MAC_A);
+  const p = await pix(MAC_A);
+  await act(MAC_A, 'grant'); await act(MAC_A, 'revoke');
+  await p.approve();
+  assert.equal((await access(MAC_A)).state, 'revoked');
+  assert.equal((await h.q("select count(*)::int n from public.admin_audit_log where action = 'paid_not_granted'"))[0].n, 1);
+});
+
+test('transferência de tempo corrido mantém o mesmo fim (não vira ilimitado)', async () => {
+  await wallPlan(3600);
+  await onboard(MAC_A); const p = await pix(MAC_A); await p.approve(); await router.poll();
+  await onboard(MAC_B);
+  const fim = (await access(MAC_A)).expires_at;
+  assert.equal((await h.admin('transfer', { from: MAC_A, to: MAC_B }, adm.token)).status, 200);
+  assert.equal(String((await access(MAC_B)).expires_at), String(fim));
+  await h.useTripPlan();
+});
+
+test('plano de 20 dias pode ser comprado (validação de 30 dias coerente)', async () => {
+  await wallPlan(20 * 86400);
+  await onboard(MAC_A);
+  assert.equal((await pix(MAC_A)).c.status, 200);
+  await h.useTripPlan();
+});
+
+test('cadastro travado após 15 min: outro aparelho na rede não troca o nome usado na conferência dos pré-pagos', async () => {
+  await onboard(MAC_A);
+  await h.q("update public.hotspot_passengers set registered_at = now() - interval '20 minutes'");
+  const r = await reg(MAC_A, 'Outra Pessoa Silva', 'outra@example.com');
+  assert.equal(r.status, 409); assert.equal(r.data.locked, true);
+  assert.equal((await h.q('select full_name from public.hotspot_passengers'))[0].full_name, 'Maria Souza Lima');
+});
+
+test('Pix vencido aqui (5 min) mas aberto no MP é cancelado no MP antes de gerar outro; se já foi pago, é aplicado', async () => {
+  await onboard(MAC_A);
+  const old = await pix(MAC_A);
+  await h.q("update public.hotspot_orders set expires_at = now() - interval '10 minutes', created_at = now() - interval '12 minutes'");
+  await h.rpc('hotspot_expire_stale', {});
+  const novo = await h.createPix(MAC_A);
+  assert.equal(novo.status, 200); assert.notEqual(novo.data.order_id, old.c.data.order_id);
+  assert.equal(h.mp.get(old.pid).status, 'cancelled', 'Pix antigo cancelado no Mercado Pago: sem cobrança dupla');
+});
+
+test('reconciliação também alcança quem pagou por Pix de tempo corrido (revogação sem ACK após vencer)', async () => {
+  await wallPlan(3600);
+  await onboard(MAC_A); const p = await pix(MAC_A); await p.approve(); await router.poll();
+  router.dropCmdAcks = 99;
+  await h.q("update public.hotspot_access set expires_at = now() - interval '1 second'");
+  await router.poll();                                   // vence; o R se perde
+  router.users.get(MAC_A).disabled = false; router.users.get(MAC_A).limit = 0; router.sessions.add(MAC_A); // "não aplicou"
+  await h.q("update public.hotspot_router_commands set status = 'failed' where kind = 'revoke'");
+  router.dropCmdAcks = 0;
+  await h.q("update public.hotspot_router_commands set done_at = now() - interval '1 minute' where kind = 'revoke'");
+  await h.q("update public.hotspot_router_commands set created_at = now() - interval '2 hours', done_at = now() - interval '2 hours' where kind = 'trial'");
+  await router.poll(); await router.poll(); await router.poll();
+  assert.equal(router.canBrowseNow(MAC_A), false);
+  await h.useTripPlan();
+});
+
+test('Pix antigo vencido aqui mas PAGO no MP: aplicado antes de reservar, sem gerar segunda cobrança', async () => {
+  await onboard(MAC_A);
+  const old = await pix(MAC_A);
+  await h.q("update public.hotspot_orders set expires_at = now() - interval '10 minutes', created_at = now() - interval '12 minutes'");
+  await h.rpc('hotspot_expire_stale', {});
+  h.mp.approve(old.pid);                                 // pagou depois de vencer no portal; webhook perdido
+  const creates = h.mp.creates().length;
+  const r = await h.createPix(MAC_A);
+  assert.equal(r.status, 409); assert.equal(r.data.already_active, true);
+  assert.equal(h.mp.creates().length, creates, 'nenhum Pix novo');
+});
+
+test('cortesia após o tempo vencer: o usuário desativado por vencimento vira cortesia de 2 min', async () => {
+  await wallPlan(3600);
+  await onboard(MAC_A); const p = await pix(MAC_A); await p.approve(); await router.poll();
+  await h.q("update public.hotspot_access set expires_at = now() - interval '1 second'");
+  await router.poll(); assert.equal(router.canBrowseNow(MAC_A), false);
+  await h.q("update public.hotspot_router_commands set created_at = now() - interval '2 hours', done_at = now() - interval '2 hours' where kind = 'trial'"); // passou 1 h
+  await pix(MAC_A); await router.poll();
+  assert.equal(router.users.get(MAC_A).comment, 't:pix'); assert.equal(router.canBrowseNow(MAC_A), true);
+  assert.equal((await portal(MAC_A)).trial, 'active');
   await h.useTripPlan();
 });
