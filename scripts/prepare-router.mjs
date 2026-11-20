@@ -26,8 +26,6 @@ const userProfile = String(env.HOTSPOT_USER_PROFILE || 'wifi-5h').trim();
 const serverProfile = String(env.HOTSPOT_SERVER_PROFILE || 'hsprof1').trim();
 const tls = String(env.TLS_MODE || 'yes-without-crl').trim();
 const interval = String(env.POLL_INTERVAL || '20s').trim();
-const htmlDir = String(env.HOTSPOT_HTML_DIR || 'hotspot').trim();
-if (!/^[A-Za-z0-9_-]{1,32}$/.test(htmlDir)) die('HOTSPOT_HTML_DIR inválido (só nome da pasta, ex.: hotspot).');
 
 if (!/^https:\/\/[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(portal)) die('PORTAL_URL deve ser https://dominio (sem caminho).');
 if (!/^[a-z0-9]{10,30}$/.test(ref)) die('SUPABASE_PROJECT_REF inválido (só letras minúsculas e números).');
@@ -54,8 +52,8 @@ must(login, 'https://SEU-SITE.netlify.app', 'login.html');
 login = login.replaceAll('https://SEU-SITE.netlify.app', portal);
 
 let poll = read('router/hotspot-poll.rsc');
-must(poll, 'SEU-PROJETO.supabase.co', 'hotspot-poll.rsc'); must(poll, ':local profile "wifi-5h"', 'hotspot-poll.rsc'); must(poll, ':local tls "yes-without-crl"', 'hotspot-poll.rsc'); must(poll, ':local hdir "hotspot"', 'hotspot-poll.rsc');
-poll = poll.replaceAll('SEU-PROJETO.supabase.co', apiHost).replace(':local profile "wifi-5h"', `:local profile "${userProfile}"`).replace(':local tls "yes-without-crl"', `:local tls "${tls}"`).replace(':local hdir "hotspot"', `:local hdir "${htmlDir}"`);
+must(poll, 'SEU-PROJETO.supabase.co', 'hotspot-poll.rsc'); must(poll, ':local profile "wifi-5h"', 'hotspot-poll.rsc'); must(poll, ':local tls "yes-without-crl"', 'hotspot-poll.rsc'); must(poll, ':local hprof "hsprof1"', 'hotspot-poll.rsc');
+poll = poll.replaceAll('SEU-PROJETO.supabase.co', apiHost).replace(':local profile "wifi-5h"', `:local profile "${userProfile}"`).replace(':local tls "yes-without-crl"', `:local tls "${tls}"`).replace(':local hprof "hsprof1"', `:local hprof "${serverProfile}"`);
 
 let diag = read('router/diagnostico.rsc');
 must(diag, 'SEU-PROJETO.supabase.co', 'diagnostico.rsc');
@@ -244,7 +242,8 @@ B) PÁGINA DE LOGIN  (leva o aparelho ao portal; consulta o aviso local "hsx-<MA
 C) SCRIPT wifi-poll (ainda sem agendar)
    (Já existe o script wifi-poll: ABRA-O, apague todo o Source e cole o novo hotspot-poll.rsc; a ROUTER_SHARED_KEY é digitada de novo.)
    Policy do script: read,write,test  (a gravação do aviso usa /file, que exige "write")
-   Pasta do Hotspot usada pelo script: ${htmlDir}  (confira: /ip hotspot profile print detail where name=${serverProfile} -> html-directory)
+   Pasta do Hotspot: o script LÊ o html-directory do perfil ${serverProfile} a cada execução (no seu equipamento: flash/hotspot).
+   Confira:  /ip hotspot profile print detail where name=${serverProfile}   -> html-directory=flash/hotspot
    Troque COLOQUE_A_MESMA_ROUTER_SHARED_KEY pela ROUTER_SHARED_KEY (a que já está no Supabase).
    /system script run wifi-poll
    /log print where message~"wifi-poll"
@@ -266,7 +265,8 @@ D) TESTE DE CRÉDITO SEM MERCADO PAGO (eu crio o crédito de teste de 3 min e li
 D2) TESTE DO AVISO "Seu tempo de internet acabou" (depois do corte por tempo do passo D)
    1. Com o celular já cortado:  /system script run wifi-poll
    2. /file print where name~"hsx-"
-      ESPERADO: um arquivo ${htmlDir}/hsx-<MAC com hifens>.txt (ex.: hsx-BC-37-D3-C4-12-2E.txt) com contents=EXP.
+      ESPERADO: o arquivo flash/hotspot/hsx-${MAC.replaceAll(":", "-")}.txt (mesma pasta do login.html) com contents=EXP.
+      Se ele aparecer em OUTRA pasta, o log dirá "aviso criado em outro local: ..." — não siga; me envie esse texto.
       (Se não aparecer: me envie /log print where message~"wifi-poll" e a saída de /ip hotspot profile print detail where name=${serverProfile}.)
    3. No celular: desligue e ligue o Wi-Fi da rede (ou abra http://example.com). A janela de login deve abrir o portal em
       ${portal}/?mac=...&exp=1  mostrando "Seu tempo de internet acabou".

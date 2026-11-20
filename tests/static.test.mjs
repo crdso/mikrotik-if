@@ -266,6 +266,9 @@ test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro
     const f = (n) => readFileSync(path.join(out, n), 'utf8');
     const poll = f('hotspot-poll.rsc');
     assert.match(poll, /:local profile "plano-5h"/); assert.doesNotMatch(poll, /wifi-5h/);
+    assert.match(poll, /:local hprof "hsprof1"/, 'perfil do servidor Hotspot de onde se lê o html-directory');
+    assert.doesNotMatch(poll, /:local hdir "[^"]/, 'pasta HTML não é fixa');
+    assert.match(f('ROTEIRO-CURTO.txt'), /flash\/hotspot\/hsx-BA-28-2A-91-55-50\.txt|flash\/hotspot\/hsx-BC-37-D3-C4-12-2E\.txt/, 'caminho esperado do aviso');
     assert.match(poll, /https:\/\/abcdefghijklmnopqrst\.supabase\.co\/functions\/v1\/router-sync/);
     assert.match(poll, /:local tls "yes-without-crl"/); assert.doesNotMatch(poll, /check-certificate=no\b/);
     assert.match(poll, /:local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"/, 'chave só como placeholder');
@@ -316,7 +319,12 @@ test('RouterOS: aviso local de tempo esgotado só mexe em arquivos hsx-*.txt da 
   assert.ok(fileLines.length >= 4, 'cria, ajusta, remove ao creditar e remove ao voltar a ter crédito');
   for (const l of fileLines) assert.match(l, /hsx-|\$fp|\$fid|\$ofid/, `/file só com arquivos hsx-: ${l.trim()}`);
   assert.doesNotMatch(live, /\/file\s+(remove|set)\s+\[find\s*\]|\/file remove \*|\/file remove \[find where name~/i, 'nunca remove arquivos em massa');
-  assert.match(live, /:local hdir "hotspot"/); assert.match(live, /contents="EXP"/);
+  assert.match(live, /:local hprof "hsprof1"/); assert.doesNotMatch(live, /:local hdir "[^"]/, 'a pasta não é fixa: vem do perfil'); assert.match(live, /contents="EXP"/);
+  assert.ok(live.includes('/ip hotspot profile get [find where name=$hprof] html-directory'), 'lê o html-directory do perfil Hotspot');
+  assert.ok(live.includes('([:len $fid] = 0) && ([:len $hdir] > 0)'), 'nunca cria arquivo se a pasta for desconhecida (evita gravar na raiz)');
+  assert.ok(live.includes('[:find $hdir ".."]'), 'rejeita ".." na pasta');
+  assert.match(live, /aviso criado em outro local/, 'avisa se o arquivo cair fora da pasta esperada');
+  assert.doesNotMatch(read('scripts/prepare-router.mjs'), /HOTSPOT_HTML_DIR/);
   assert.match(live, /:delay 2s/, 'espera a gravação do arquivo antes de ajustar o conteúdo');
   const login = read('router/login.html');
   assert.match(login, /XMLHttpRequest/); assert.match(login, /\/hsx-/); assert.match(login, /exp=1/);

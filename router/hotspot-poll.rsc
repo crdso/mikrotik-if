@@ -40,8 +40,9 @@
 :local profile "wifi-5h"
 :local maxGrant 2d
 :local expMargin 10s
-# Pasta HTML do servidor Hotspot (/ip hotspot profile print: html-directory). Aqui ficam os avisos "hsx-<MAC>.txt".
-:local hdir "hotspot"
+# Servidor Hotspot (o gerador troca pelo seu). A pasta HTML (ex.: flash/hotspot) e LIDA deste perfil a cada
+# execucao (html-directory); e la que ficam os avisos "hsx-<MAC>.txt".
+:local hprof "hsprof1"
 
 # Evita duas execuções ao mesmo tempo; uma trava "velha" (3 min) é ignorada.
 :local run true
@@ -53,6 +54,14 @@
 :if ($run) do={
     :set wifiPollBusy true
     :set wifiPollStart $now
+
+    # Pasta HTML do perfil (sem valor ou com ".." os avisos locais ficam desligados; o resto do script segue normal).
+    :local hdir ""
+    :do { :set hdir [/ip hotspot profile get [find where name=$hprof] html-directory] } on-error={ :set hdir "" }
+    :if (([:len $hdir] = 0) || ([:typeof [:find $hdir ".."]] != "nil")) do={
+        :set hdir ""
+        :log warning "wifi-poll: html-directory do perfil Hotspot nao encontrado; avisos de tempo esgotado desativados"
+    }
 
     :local ok false
     :local resp ""
@@ -126,10 +135,14 @@
                         # arquivo servido pelo proprio Hotspot, que o login.html consulta so para o MAC do aparelho.
                         :do {
                             :local fid [/file find where name=$fp]
-                            :if ([:len $fid] = 0) do={
+                            :if (([:len $fid] = 0) && ([:len $hdir] > 0)) do={
                                 /file print file=($hdir . "/hsx-" . [:pick $nm 0 2] . "-" . [:pick $nm 3 5] . "-" . [:pick $nm 6 8] . "-" . [:pick $nm 9 11] . "-" . [:pick $nm 12 14] . "-" . [:pick $nm 15 17]) where name="hsx-nenhum"
                                 :delay 2s
                                 :set fid [/file find where name=$fp]
+                                :if ([:len $fid] = 0) do={
+                                    :local alt [/file find where name~"hsx-"]
+                                    :if ([:len $alt] > 0) do={ :log warning ("wifi-poll: aviso criado em outro local: " . [/file get ($alt->0) name] . " (esperado " . $fp . ")") } else={ :log warning ("wifi-poll: aviso nao criado: " . $fp) }
+                                }
                             }
                             :if ([:len $fid] > 0) do={
                                 :if ([/file get $fid contents] != "EXP") do={ /file set $fid contents="EXP" }
