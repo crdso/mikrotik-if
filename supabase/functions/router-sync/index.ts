@@ -49,7 +49,10 @@ export async function handler(req) {
       const commands = (c?.commands ?? []).filter((x) => KIND[x.kind] && normalizeMac(x.mac) && isUuid(x.id));
       if (url.searchParams.get('fmt') === 'json') return json({ orders, commands });
       const lines = ['OK', ...orders.map((o) => `G ${o.mac} ${o.id} ${rosTime(o.grant_seconds)}`),
-        ...commands.map((x) => `C ${x.id} ${KIND[x.kind]} ${normalizeMac(x.mac)}`)];
+        // Tempo corrido: liberação com teto de uso ("L <MAC> <segundos restantes>"); ilimitado: "G <MAC>".
+        ...commands.map((x) => (x.kind === 'grant' && Number.isInteger(x.secs) && x.secs > 0
+          ? `C ${x.id} L ${normalizeMac(x.mac)} ${Math.min(x.secs, 2592000)}`
+          : `C ${x.id} ${KIND[x.kind]} ${normalizeMac(x.mac)}`))];
       return text(lines.join('\n') + '\n');
     }
     if (req.method === 'POST') {

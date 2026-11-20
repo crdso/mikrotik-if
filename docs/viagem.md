@@ -102,3 +102,37 @@ cada campo e nunca executa texto vindo da rede. Comando sem ACK volta à fila ap
 * "Encerrar viagem" revoga todos os acessos (o roteador desativa os usuários no próximo ciclo).
 * Nome/e-mail são apagados pela retenção automática (padrão 30 dias) ou na hora pelo painel (Configurações);
   os pedidos pagos são mantidos, anonimizados.
+
+## Cortesia de 2 minutos para pagar o Pix
+
+* Ao gerar o Pix (planos ilimitado ou de tempo corrido), o servidor enfileira o comando `T`: o MikroTik cria um usuário
+  `t:pix` com `limit-uptime=2m` e pede o login daquele MAC. Uma cortesia por aparelho por hora e no máximo 40 a cada
+  10 minutos no total.
+* O portal **só anuncia** a cortesia quando o roteador confirma a sessão autenticada (estados: preparando →
+  ativando → ativa / falhou / encerrada). Falha nunca é apresentada como sucesso.
+* **iPhone:** a janela automática de login (assistente de rede cativa do iOS) só troca "Cancelar" por **"Concluído"**
+  depois de testar a rede de novo. Tocar em "Cancelar" enquanto a rede ainda é considerada cativa faz o iOS sair do
+  Wi-Fi — foi o que causou a desconexão relatada. O portal recarrega a página uma vez quando a cortesia é confirmada,
+  para o iOS reavaliar a rede, e orienta a tocar em "Concluído". Isso depende do iOS e precisa ser confirmado em
+  aparelho real; se o botão não mudar, a alternativa é pagar pelos dados móveis (o Pix continua o mesmo).
+* Pagou: o comando de liberação troca o usuário de cortesia pelo acesso pago (derruba só a sessão daquele MAC por
+  ~1 s para relogar com o limite novo).
+
+## Tempo corrido, renovação e estorno
+
+* O fim do acesso é recalculado a partir de **todos** os pedidos pagos (não estornados) do aparelho, encadeados pela
+  data de pagamento. Renovar antes de vencer soma; estornar uma compra tira só o tempo dela; estornar a única compra
+  encerra o acesso.
+* Proteção local: o roteador recebe `C <id> L <MAC> <segundos restantes>` e grava `limit-uptime = uso atual +
+  restante`. Mesmo sem Supabase, sem ACK da revogação ou após reboot, o aparelho não navega mais do que o tempo pago.
+  O corte pelo relógio continua sendo feito pelo servidor (a cada ciclo do `wifi-poll`).
+* Reconciliação: aparelho autenticado no roteador que não tem mais direito (ex.: revogação sem ACK) recebe nova
+  revogação automaticamente.
+* Pix pago depois de o organizador revogar o aparelho **não** reativa o acesso: fica registrado na auditoria
+  (`paid_not_granted`) para reembolso ou liberação manual.
+
+## Validade do Pix
+
+O portal mostra 5 minutos; o Mercado Pago recebe 30 minutos (prazos curtos são cancelados na hora pelo MP). Antes de
+gerar um Pix novo, os Pix vencidos aqui mas ainda abertos no MP são cancelados no MP; se algum já tiver sido pago, o
+pagamento é aplicado. Pagamento que chegue mesmo assim depois do vencimento é aplicado normalmente.

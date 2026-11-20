@@ -73,7 +73,7 @@
   }
   function enterWait(s) {
     if (current() !== 'wait') show('wait');
-    $('whotext').textContent = s.name_hint ? s.name_hint + ' · ' + (s.email_hint || '') : 'Cadastro recebido';
+    $('whotext').textContent = s.name_hint ? s.name_hint + (s.email_hint ? ' · ' + s.email_hint : '') : 'Cadastro recebido';
     let msg = 'Aguardando o organizador conferir seu cadastro…';
     if (s.pix_pending) msg = 'Você tem um Pix gerado e ainda não pago. Toque no botão para ver o mesmo código (não gera outro).';
     else if (LIMIT_HINT) msg = 'Seu tempo de internet anterior acabou. Aguarde a liberação ou use o Pix abaixo.';
@@ -143,10 +143,32 @@
     }
     if (editing && current() === 'reg') return schedule(WAIT_MS);
     if (!s.registered) { if (current() !== 'reg') enterReg(false); return schedule(WAIT_MS); }
-    if (order && current() === 'pix') return schedule(FAST_MS);
+    if (order && current() === 'pix') { showTrial(s); return schedule(FAST_MS); }
     if (s.pix_pending && current() === 'loading') { openPix(true); return undefined; } // reabriu o portal com Pix em aberto
     enterWait(s);
     return schedule(WAIT_MS);
+  }
+
+  // Cortesia de 2 min: só anunciada quando o ROTEADOR confirma o aparelho autenticado (estado vem do servidor).
+  // No iPhone, a janela automática de login só troca "Cancelar" por "Concluído" depois que ela mesma reavalia a rede;
+  // fechar em "Cancelar" numa rede ainda cativa faz o iOS deixar o Wi-Fi. Por isso, ao confirmar a cortesia, a página
+  // é recarregada UMA vez (parâmetro t=1): o recarregamento leva o assistente do iOS a testar a rede de novo.
+  const TRIAL_TEXT = {
+    preparing: ['Preparando 2 minutos de internet para você pagar (até ~20 s). Não feche esta janela ainda.', ''],
+    authenticating: ['Ativando os 2 minutos de internet neste aparelho… Não feche esta janela ainda.', ''],
+    // iPhone (documentado pela Apple): "Cancelar" leva a uma tela com "Outra Rede" (SAI do Wi-Fi) e "Usar sem Internet"
+    // (CONTINUA no Wi-Fi). Com a cortesia confirmada, o iPhone segue no Wi-Fi e a internet funciona.
+    active: ['2 minutos de internet ATIVOS (confirmado pelo roteador). Copie o código Pix. iPhone: toque em "Concluído" se aparecer; se só houver "Cancelar", toque nele e escolha "Usar sem Internet" — NUNCA "Outra Rede". Depois abra o app do banco e pague. Android: pode sair desta tela.', 'success'],
+    failed: ['Não foi possível ativar os 2 minutos neste aparelho. Pague usando os dados móveis, ou peça ajuda ao organizador. Você não paga duas vezes.', 'error'],
+    ended: ['Os 2 minutos de cortesia acabaram. Se já pagou, a liberação continua sozinha; se não, pague usando os dados móveis.', ''],
+  };
+  function showTrial(st) {
+    const t = TRIAL_TEXT[st.trial];
+    if (t) setText('status', t[0], t[1]); else setText('status', 'Aguardando confirmação do pagamento…');
+    if (st.trial === 'active' && params.get('t') !== '1') {
+      params.set('t', '1');
+      location.replace(location.pathname + '?' + params.toString());
+    }
   }
 
   // ---- ações -------------------------------------------------------------------
@@ -175,7 +197,7 @@
       order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code, qr_code_base64: r.qr_code_base64,
         deadline: typeof r.seconds_left === 'number' ? Date.now() + r.seconds_left * 1000 : null };
       enterPix(); schedule(FAST_MS);
-      setText('status', 'Você ganhou 2 minutos de internet (liberados em até ~20 s) para abrir o app do banco e pagar. Se não pagar nesse tempo, a internet volta a ficar bloqueada.');
+      if (state) showTrial(state);
     } catch (e) {
       if (e.data && e.data.registration_required) { enterReg(false); return; }
       if (e.data && (e.data.already_active || e.data.blocked || e.data.revoked)) { schedule(0); return; }

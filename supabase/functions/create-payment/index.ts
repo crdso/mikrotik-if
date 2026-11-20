@@ -37,6 +37,20 @@ async function settleOldPix(orderId, paymentId) {
   }
 }
 
+async function settleStale(mac) {
+  try {
+    const stale = (await rpc('hotspot_stale_payments', { p_mac: mac })) || [];
+    await Promise.allSettled(stale.slice(0, 2).map(async (st) => {
+      let pay = await mpGetPayment(st.payment_id);
+      if (String(pay?.external_reference) !== String(st.order_id)) return;
+      if (pay.status === 'pending') { await mpCancelPayment(st.payment_id).catch(() => {}); pay = await mpGetPayment(st.payment_id); }
+      const args = paymentApplyArgs(st.order_id, pay);
+      // Cancelamento ainda não confirmado pelo MP: marca como tratado para não repetir a cada Pix (se pagar, o webhook aplica).
+      await rpc('hotspot_apply_payment', pay.status === 'pending' ? { ...args, p_mp_status: 'cancelled', p_mp_status_detail: 'vencido_no_portal' } : args);
+    }));
+  } catch (e) { console.error('create-payment stale', e instanceof MpError ? e.status : String(e)); }
+}
+
 // Cortesia: 2 minutos de internet para abrir o app do banco e pagar (no máximo 1 a cada 60 min por aparelho).
 // Falha aqui nunca impede o Pix.
 async function trial(mac) {
@@ -65,10 +79,17 @@ export async function handler(req) {
       const emailIn = String(input?.email ?? '').trim().toLowerCase();
       if (!validName(name)) return json({ error: 'Informe seu nome completo (nome e sobrenome).' }, 400, headers);
       if (!validEmail(emailIn)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
+      if (await rpc('hotspot_registration_locked', { p_mac: mac, p_name: name, p_email: emailIn })) {
+        return json({ error: 'Seu cadastro já foi confirmado. Para corrigir nome ou e-mail, fale com o organizador.', locked: true }, 409, headers);
+      }
       const reg = await rpc('hotspot_register_passenger', { p_mac: mac, p_name: name, p_email: emailIn });
       const bad = registrationError(reg?.action, SERVICE_NAME);
       if (bad) return json({ error: bad[1], ...(bad[2] ? { retry: true } : {}) }, bad[0], bad[0] === 429 ? { ...headers, 'Retry-After': '60' } : headers);
     }
+
+    // Pix vencidos aqui (5 min) que ainda podem estar abertos no Mercado Pago (30 min): ANTES de reservar um novo, aplica
+    // os que já foram pagos (a reserva então vê o acesso e não cobra de novo) e cancela os pendentes no MP.
+    await settleStale(mac);
 
     let r = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -89,6 +110,8 @@ export async function handler(req) {
         return json({ error: 'Identifique-se (nome completo e e-mail) para continuar.', registration_required: true }, 428, headers);
       case 'invalid_mac':
         return json({ error: 'Dispositivo inválido.' }, 400, headers);
+      case 'invalid_amount':
+        return json({ error: 'Este plano está com valor ou duração inválidos. Escolha outro.' }, 409, headers);
       case 'plan_unavailable':
         return json({ error: 'Este plano não está disponível. Atualize a página e escolha outro.' }, 409, headers);
       case 'rate_limited':
