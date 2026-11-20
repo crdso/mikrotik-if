@@ -253,6 +253,12 @@ export async function createHarness() {
         method: 'POST', origin: null, body: `expired=${list}`,
         headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
     },
+    // Telemetria como o RouterOS 6 envia: "online=<n>&tel=MAC_IP_uso_limite_A,...".
+    async routerTelemetry(entries, online, key = ENV.ROUTER_SHARED_KEY) {
+      return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, {
+        method: 'POST', origin: null, body: `online=${online}&tel=${entries}`,
+        headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
+    },
     async routerAck(order_id, mac, key = ENV.ROUTER_SHARED_KEY) {
       return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, { method: 'POST', headers: { 'x-router-key': key }, body: { order_id, mac }, origin: null })));
     },

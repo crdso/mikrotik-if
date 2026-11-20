@@ -239,7 +239,13 @@ B) PÁGINA DE LOGIN  (leva o aparelho ao portal; consulta o aviso local "hsx-<MA
    VERIFICAÇÃO: celular sem crédito abre ${portal}/?mac=...  (tela de compra)
    ROLLBACK: devolva login.html.original para <html-directory>/login.html
 
-C) SCRIPT wifi-poll (ainda sem agendar)
+C0) BACKUP DO SCRIPT QUE JÁ FUNCIONA (antes de trocar; permite voltar na hora)
+   /system script add name=wifi-poll-anterior policy=read,write,test source=[/system script get wifi-poll source]
+   (a cópia contém a mesma chave do roteador: ela fica só no roteador e deve ser apagada depois que tudo estiver aprovado)
+   ROLLBACK COMPLETO (volta ao script de antes):
+   /system script set wifi-poll source=[/system script get wifi-poll-anterior source]
+
+C) SCRIPT wifi-poll CONSOLIDADO (crédito + aviso de tempo esgotado + telemetria para o painel; ainda sem agendar)
    (Já existe o script wifi-poll: ABRA-O, apague todo o Source e cole o novo hotspot-poll.rsc; a ROUTER_SHARED_KEY é digitada de novo.)
    Policy do script: read,write,test  (a gravação do aviso usa /file, que exige "write")
    Pasta do Hotspot: o script LÊ o html-directory do perfil ${serverProfile} a cada execução (no seu equipamento: flash/hotspot).
@@ -275,7 +281,15 @@ D2) TESTE DO AVISO "Seu tempo de internet acabou" (depois do corte por tempo do 
    ROLLBACK (só dos avisos): /file remove [find where name~"hsx-"]
    Limpeza do teste: o aviso deste MAC de teste pode ser removido com o comando acima.
 
-E) AGENDAR  (só depois do D aprovado)
+D3) TELEMETRIA PARA O PAINEL (envio de sessões e uso a cada 60 s)
+   1. /system script run wifi-poll   (e de novo depois de ~1 minuto: a telemetria só é enviada a cada 60 s)
+   2. /log print where message~"wifi-poll"   -> ESPERADO: nenhum "falha ao enviar telemetria".
+   3. Painel https://wifiabordo.netlify.app/admin > Dashboard: "Dispositivos online" deve mostrar o nº de /ip hotspot active print count-only
+      e, em Dispositivos, o MAC de teste com tempo usado/limite iguais a /ip hotspot user print detail where name=${MAC}.
+   4. Se "falha ao enviar telemetria" aparecer: pare, me envie o log (sem chaves). O restante do script (créditos) não depende disso.
+   ROLLBACK: o passo C0 acima.
+
+E) AGENDAR  (só depois do D, D2 e D3 aprovados)
    /system scheduler add name=wifi-poll interval=${interval} on-event="/system script run wifi-poll" start-time=startup policy=read,write,test
    /system scheduler print
    /log print where message~"wifi-poll"

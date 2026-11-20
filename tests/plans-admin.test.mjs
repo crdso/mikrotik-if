@@ -542,3 +542,48 @@ test('privacidade: limpar pedidos antigos remove também o estado de telemetria 
   await h.rpc('hotspot_purge', { p_days: 1 });
   assert.equal((await h.q('select count(*)::int n from public.hotspot_device_state'))[0].n, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Telemetria ponta a ponta com o modelo do script (blocos, formato de tempo, reboot, sessão encerrada)
+// ---------------------------------------------------------------------------
+test('telemetria do wifi-poll (modelo): sessões, uso e limite chegam ao painel; blocos de até 10; sem uma requisição por aparelho', async () => {
+  const macs = Array.from({ length: 23 }, (_, i) => `AA:BB:CC:00:10:${String(i + 10).padStart(2, '0')}`);
+  for (const m of macs) await h.payOrder(m);
+  await router.poll(); await router.poll(); await router.poll();            // o roteador recebe até 10 créditos por consulta
+  macs.slice(0, 7).forEach((m) => router.sessions.add(m));
+  router.use(macs[0], 4800); router.use(macs[1], 600);
+  await router.telemetry();
+  assert.equal(router.telPosts.length, 3, '23 aparelhos = 3 requisições (não 23)');
+  assert.deepEqual(router.telPosts.map((p) => p.entries), [10, 10, 3]); assert.ok(router.telPosts.every((p) => p.status === 200));
+  const live = (await h.admin('dashboard', {}, admin.token)).data.live; assert.equal(live.sessions_online, 7);
+  const devs = (await h.admin('devices', { limit: 100 }, admin.token)).data.rows;
+  const d0 = devs.find((d) => d.mac === macs[0]), d9 = devs.find((d) => d.mac === macs[9]);
+  assert.equal(d0.online, true); assert.equal(d0.used_seconds, 4800); assert.equal(d0.remaining_seconds, 18000 - 4800); assert.equal(d0.ip, '192.168.88.10');
+  assert.equal(d9.online, false); assert.equal(d9.remaining_seconds, 18000);
+});
+
+test('telemetria: sessão encerrada vira offline, reboot zera sessões, nova compra soma ao limite e esgotado mostra restante 0', async () => {
+  await h.payOrder(MAC_A); await router.poll(); router.sessions.add(MAC_A); router.use(MAC_A, 3600);
+  await router.telemetry();
+  let d = (await h.admin('devices', {}, admin.token)).data.rows[0]; assert.equal(d.online, true); assert.equal(d.remaining_seconds, 18000 - 3600);
+  router.sessions.delete(MAC_A); await router.telemetry();
+  d = (await h.admin('devices', {}, admin.token)).data.rows[0]; assert.equal(d.online, false); assert.equal(d.remaining_seconds, 18000 - 3600, 'desconectar não faz perder o tempo restante');
+  assert.ok(d.last_seen, 'última atividade preservada');
+  router.sessions.add(MAC_A); router.reboot(); await router.telemetry();
+  assert.equal((await h.admin('dashboard', {}, admin.token)).data.live.sessions_online, 0, 'reboot: sem sessões');
+  await h.payOrder(MAC_A); await router.poll(); await router.telemetry();
+  d = (await h.admin('devices', {}, admin.token)).data.rows[0]; assert.equal(d.limit_seconds, 36000); assert.equal(d.remaining_seconds, 36000 - 3600);
+  router.use(MAC_A, 99 * H); await router.poll(); await router.telemetry();
+  d = (await h.admin('devices', {}, admin.token)).data.rows[0]; assert.equal(d.remaining_seconds, 0); assert.equal(d.credit_state, 'exhausted');
+});
+
+test('script do roteador: telemetria só lê o Hotspot, usa a mesma chave e validação TLS, em blocos e a cada 60 s', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rsc = readFileSync(new URL('../router/hotspot-poll.rsc', import.meta.url), 'utf8').split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.ok(rsc.includes(':local telEvery 60s')); assert.ok(rsc.includes('(($now - $wifiTelLast) >= $telEvery)'));
+  assert.ok(rsc.includes('if ($nb >= 10)'), 'blocos de 10');
+  const tel = rsc.slice(rsc.indexOf('Telemetria')); const part = rsc.slice(rsc.indexOf(':set wifiTelLast $now'));
+  assert.ok(part.includes('/ip hotspot active find') && part.includes('limit-uptime'));
+  assert.doesNotMatch(part, /\/ip hotspot (user|active) (add|set|remove|disable)|\/file (set|remove|print)|\/system|\/ip firewall/, 'telemetria não altera nada no roteador');
+  assert.ok(tel.length > 0);
+});

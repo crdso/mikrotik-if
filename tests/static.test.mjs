@@ -112,7 +112,7 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   const live = rsc.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // sem comentários, strings intactas
   assert.doesNotMatch(live, /check-certificate=no\b/, 'nunca desligar a validação TLS');
   assert.match(live, /:local tls "(yes-without-crl|yes)"/, 'validação de certificado ligada');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 3, 'GET, ACK e aviso de esgotado usam a validação');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 5, 'GET, ACK, aviso de esgotado e os 2 envios de telemetria usam a validação');
   assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);
