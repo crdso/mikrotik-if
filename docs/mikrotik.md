@@ -189,3 +189,14 @@ npm run prepare-router
 ```
 
 Saída em `router-dist/` (ignorada pelo Git): `login.html`, `hotspot-poll.rsc`, `diagnostico.rsc`, `INSTALACAO-WINBOX.txt` (passo a passo com verificação e reversão) e `CHECKLIST-MERCADO-PAGO.txt`. O gerador **recusa** `TLS_MODE=no`, valida os nomes e **nunca grava a `ROUTER_SHARED_KEY`**: ela é digitada só no WinBox (a mesma cadastrada nos Secrets do Supabase).
+
+## Aviso "Seu tempo de internet acabou" sem histórico do navegador
+
+No RouterOS 6.48.6 o login por MAC recusado por `limit-uptime` aparece no log (`your uptime limit is reached`), mas o Hotspot **não repassa** esse texto em `$(error)` para o `login.html`; assim, a janela de login do iPhone chega ao portal sem nenhuma dica e, sem pedido salvo no navegador, a tela mostrada é a de compra.
+
+Solução (evidência local, sem consulta aberta por MAC):
+1. O `wifi-poll` detecta o aparelho com tempo esgotado e grava, na pasta HTML do Hotspot, o arquivo `hsx-<MAC com hifens>.txt` com o texto `EXP`. Ao creditar de novo (ou se o limite for aumentado), o arquivo é removido.
+2. O `login.html` pergunta ao **próprio roteador** (caminho relativo, mesma origem) só pelo arquivo do MAC do aparelho. Se vier `EXP`, leva ao portal com `&exp=1`; em qualquer falha, demora (3 s) ou resposta diferente, segue sem dica.
+3. O portal trata `exp=1` como evidência de esgotamento. Sem evidência (aparelho novo, MAC privado novo, falha), a tela é neutra: a oferta de compra.
+
+Limites: o aviso é por MAC; se o aparelho trocar de MAC (MAC privado), ele é um aparelho novo. Qualquer aparelho da rede local pode ler o arquivo de qualquer MAC (revela só "esgotado"), e nada disso é exposto pela internet. A pasta usada é a `html-directory` do servidor Hotspot (`HOTSPOT_HTML_DIR` no gerador, padrão `hotspot`). Remoção de todos os avisos: `/file remove [find where name~"hsx-"]`.

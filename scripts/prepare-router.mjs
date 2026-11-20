@@ -26,6 +26,8 @@ const userProfile = String(env.HOTSPOT_USER_PROFILE || 'wifi-5h').trim();
 const serverProfile = String(env.HOTSPOT_SERVER_PROFILE || 'hsprof1').trim();
 const tls = String(env.TLS_MODE || 'yes-without-crl').trim();
 const interval = String(env.POLL_INTERVAL || '20s').trim();
+const htmlDir = String(env.HOTSPOT_HTML_DIR || 'hotspot').trim();
+if (!/^[A-Za-z0-9_-]{1,32}$/.test(htmlDir)) die('HOTSPOT_HTML_DIR inválido (só nome da pasta, ex.: hotspot).');
 
 if (!/^https:\/\/[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(portal)) die('PORTAL_URL deve ser https://dominio (sem caminho).');
 if (!/^[a-z0-9]{10,30}$/.test(ref)) die('SUPABASE_PROJECT_REF inválido (só letras minúsculas e números).');
@@ -52,8 +54,8 @@ must(login, 'https://SEU-SITE.netlify.app', 'login.html');
 login = login.replaceAll('https://SEU-SITE.netlify.app', portal);
 
 let poll = read('router/hotspot-poll.rsc');
-must(poll, 'SEU-PROJETO.supabase.co', 'hotspot-poll.rsc'); must(poll, ':local profile "wifi-5h"', 'hotspot-poll.rsc'); must(poll, ':local tls "yes-without-crl"', 'hotspot-poll.rsc');
-poll = poll.replaceAll('SEU-PROJETO.supabase.co', apiHost).replace(':local profile "wifi-5h"', `:local profile "${userProfile}"`).replace(':local tls "yes-without-crl"', `:local tls "${tls}"`);
+must(poll, 'SEU-PROJETO.supabase.co', 'hotspot-poll.rsc'); must(poll, ':local profile "wifi-5h"', 'hotspot-poll.rsc'); must(poll, ':local tls "yes-without-crl"', 'hotspot-poll.rsc'); must(poll, ':local hdir "hotspot"', 'hotspot-poll.rsc');
+poll = poll.replaceAll('SEU-PROJETO.supabase.co', apiHost).replace(':local profile "wifi-5h"', `:local profile "${userProfile}"`).replace(':local tls "yes-without-crl"', `:local tls "${tls}"`).replace(':local hdir "hotspot"', `:local hdir "${htmlDir}"`);
 
 let diag = read('router/diagnostico.rsc');
 must(diag, 'SEU-PROJETO.supabase.co', 'diagnostico.rsc');
@@ -231,7 +233,8 @@ A) LIMPAR O TESTE ANTERIOR — JÁ FEITO por você (remoção do usuário de tes
    /ip hotspot user remove [find name=${MAC}]
    (Se aparecer outro usuário legítimo na lista, NÃO o remova.)
 
-B) PÁGINA DE LOGIN  (leva o aparelho ao portal e repassa o motivo da recusa, se houver)
+B) PÁGINA DE LOGIN  (leva o aparelho ao portal; consulta o aviso local "hsx-<MAC>.txt" de tempo esgotado)
+   (SUBSTITUI o login.html que você já instalou: o novo pergunta ao próprio roteador se o tempo daquele MAC acabou)
    1. /ip hotspot profile print detail where name=${serverProfile}     -> anote html-directory
    2. WinBox > Files > <html-directory>/login.html : arraste para o PC (login.html.original)
    3. Arraste "login.html" desta pasta para <html-directory>/ (substituir)
@@ -239,7 +242,9 @@ B) PÁGINA DE LOGIN  (leva o aparelho ao portal e repassa o motivo da recusa, se
    ROLLBACK: devolva login.html.original para <html-directory>/login.html
 
 C) SCRIPT wifi-poll (ainda sem agendar)
-   System > Scripts > Add:  Name=wifi-poll ; Policy=read,write,test ; Source = hotspot-poll.rsc
+   (Já existe o script wifi-poll: ABRA-O, apague todo o Source e cole o novo hotspot-poll.rsc; a ROUTER_SHARED_KEY é digitada de novo.)
+   Policy do script: read,write,test  (a gravação do aviso usa /file, que exige "write")
+   Pasta do Hotspot usada pelo script: ${htmlDir}  (confira: /ip hotspot profile print detail where name=${serverProfile} -> html-directory)
    Troque COLOQUE_A_MESMA_ROUTER_SHARED_KEY pela ROUTER_SHARED_KEY (a que já está no Supabase).
    /system script run wifi-poll
    /log print where message~"wifi-poll"
@@ -257,6 +262,18 @@ D) TESTE DE CRÉDITO SEM MERCADO PAGO (eu crio o crédito de teste de 3 min e li
       ANOTE a URL que o Hotspot abriu: se tiver "&err=..." me diga o texto.
    6. Toque em "Comprar mais 5 horas" só para ver o Pix (NÃO pague). Eu limpo os dados de teste.
    7. ACÚMULO: se quiser provar 3+3 min, me avise ANTES de o primeiro crédito acabar.
+
+D2) TESTE DO AVISO "Seu tempo de internet acabou" (depois do corte por tempo do passo D)
+   1. Com o celular já cortado:  /system script run wifi-poll
+   2. /file print where name~"hsx-"
+      ESPERADO: um arquivo ${htmlDir}/hsx-<MAC com hifens>.txt (ex.: hsx-BC-37-D3-C4-12-2E.txt) com contents=EXP.
+      (Se não aparecer: me envie /log print where message~"wifi-poll" e a saída de /ip hotspot profile print detail where name=${serverProfile}.)
+   3. No celular: desligue e ligue o Wi-Fi da rede (ou abra http://example.com). A janela de login deve abrir o portal em
+      ${portal}/?mac=...&exp=1  mostrando "Seu tempo de internet acabou".
+   4. Teste de neutralidade: com OUTRO aparelho/MAC (sem aviso), o portal deve mostrar a compra normal (sem "&exp=1").
+   5. Quando houver novo crédito para o MAC, o aviso some sozinho no próximo wifi-poll (/file print where name~"hsx-").
+   ROLLBACK (só dos avisos): /file remove [find where name~"hsx-"]
+   Limpeza do teste: o aviso deste MAC de teste pode ser removido com o comando acima.
 
 E) AGENDAR  (só depois do D aprovado)
    /system scheduler add name=wifi-poll interval=${interval} on-event="/system script run wifi-poll" start-time=startup policy=read,write,test

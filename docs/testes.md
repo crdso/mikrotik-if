@@ -37,3 +37,6 @@ Feitas uma vez, contra o projeto publicado, **sem Mercado Pago e sem cobrança**
 ## Teste de mutação
 
 `npm run test:mutation` altera o código de propósito, uma falha por vez (ignorar o valor pago, remover a verificação de assinatura, abrir o CORS, desligar a validação TLS, usar comando do RouterOS 7 etc.), roda a suíte e exige que ela **falhe**. Cada arquivo é restaurado ao final.
+
+### Evidência de expiração sem histórico (`tests/expired-evidence.test.mjs`)
+Executa o `login.html` real numa sandbox com o roteador simulado: iPhone sem histórico, aparelho novo, MAC privado, retorno após compra, reboot, limite alterado pelo administrador, falhas/demoras e ausência de loops. O comportamento dos comandos `/file` do RouterOS só pode ser confirmado no equipamento físico (`D2` do roteiro).
