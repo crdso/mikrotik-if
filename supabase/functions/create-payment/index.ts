@@ -1,14 +1,36 @@
 // @ts-nocheck
-// Cria (ou reaproveita) o Pix de R$ 5 de um aparelho. O valor é decidido aqui
-// no servidor; nada do que o navegador enviar altera preço, descrição ou prazo.
+// Cria (ou reaproveita) o Pix de um aparelho para o PLANO escolhido. Preço e duração são decididos aqui,
+// no servidor, a partir do banco (hotspot_plans) e congelados no pedido; o navegador só envia o identificador
+// do plano. O e-mail do passageiro continua obrigatório (exigência do Mercado Pago).
 import {
-  GRANT_SECONDS, HttpError, MpError, PIX_TTL_MINUTES, SERVICE_NAME, PRICE_BRL, PRICE_CENTS, browserAllowed, cors, env, json,
-  mpCancelPayment, mpCreatePix, mpDate, normalizeMac, preflight, readJson, rpc, validEmail,
+  HttpError, MpError, PIX_TTL_MINUTES, SERVICE_NAME, browserAllowed, cors, env, isUuid, json,
+  mpCancelPayment, mpCreatePix, mpDate, mpGetPayment, normalizeMac, paymentApplyArgs, preflight, readJson,
+  recordFees, rpc, validEmail,
 } from '../_shared/common.ts';
 
 function secondsLeft(expiresAt) {
   if (!expiresAt) return null;
   return Math.max(0, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000));
+}
+
+// Pix pendente de OUTRO plano: antes de cancelar, o estado é relido no Mercado Pago. Um pagamento aprovado
+// nunca é cancelado nem perdido: ele é aplicado ao pedido antigo (que passa a "paid") e nenhum Pix novo é criado.
+async function settleOldPix(orderId, paymentId) {
+  let payment = await mpGetPayment(paymentId);
+  if (String(payment?.id) !== String(paymentId) || String(payment?.external_reference) !== String(orderId)) {
+    throw new HttpError(409, 'Não foi possível conferir o Pix anterior. Tente novamente.');
+  }
+  if (payment.status === 'pending') {
+    await mpCancelPayment(paymentId).catch((e) => {
+      console.error('create-payment: cancelamento do Pix anterior falhou', e instanceof MpError ? e.status : String(e));
+    });
+    payment = await mpGetPayment(paymentId); // confirma o estado FINAL (pode ter sido pago ao mesmo tempo)
+  }
+  await rpc('hotspot_apply_payment', paymentApplyArgs(orderId, payment));
+  await recordFees(orderId, payment);
+  if (['pending', 'in_process', 'authorized', 'in_mediation'].includes(payment.status)) {
+    throw new HttpError(409, 'Não foi possível trocar de plano agora. Tente novamente em instantes.');
+  }
 }
 
 export async function handler(req) {
@@ -22,14 +44,25 @@ export async function handler(req) {
     const input = await readJson(req);
     const mac = normalizeMac(input?.mac);
     const email = String(input?.email ?? '').trim();
+    const planRaw = input?.plan_id == null ? '' : String(input.plan_id).trim();
     if (!mac) return json({ error: 'Dispositivo não identificado. Abra esta página pela tela de login da rede ' + SERVICE_NAME + '.' }, 400, headers);
     if (!validEmail(email)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
+    if (planRaw !== '' && !isUuid(planRaw)) return json({ error: 'Plano inválido.' }, 400, headers);
+    const planId = planRaw === '' ? null : planRaw;
 
-    const r = await rpc('hotspot_reserve_order', { p_mac: mac, p_amount_cents: PRICE_CENTS, p_grant_seconds: GRANT_SECONDS });
+    let r = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      r = await rpc('hotspot_reserve_plan_order', { p_mac: mac, p_plan_id: planId });
+      if (r?.action !== 'switch_needed') break;
+      await settleOldPix(r.order_id, r.payment_id); // cancela (se comprovadamente pendente) ou aplica o pagamento aprovado
+    }
     switch (r?.action) {
+      case 'plan_unavailable':
+        return json({ error: 'Este plano não está disponível. Atualize a página e escolha outro.' }, 409, headers);
       case 'rate_limited':
         return json({ error: 'Muitas tentativas. Aguarde alguns minutos.' }, 429, { ...headers, 'Retry-After': '60' });
       case 'in_progress':
+      case 'switch_needed':
         return json({ error: 'Seu Pix está sendo gerado. Aguarde alguns segundos.', retry: true }, 409, headers);
       case 'paid_waiting':
         return json({ order_id: r.order_id, read_token: r.read_token, status: 'paid' }, 200, headers);
@@ -46,12 +79,13 @@ export async function handler(req) {
     }
 
     orderId = r.order_id;
+    const amountCents = Number(r.amount_cents);
     const expiresAt = new Date(Date.now() + PIX_TTL_MINUTES * 60 * 1000);
     let payment;
     try {
       payment = await mpCreatePix({
-        transaction_amount: PRICE_BRL,
-        description: `${SERVICE_NAME} - 5 horas`,
+        transaction_amount: amountCents / 100,
+        description: `${SERVICE_NAME} - ${r.plan_name}`,
         payment_method_id: 'pix',
         payer: { email },
         external_reference: orderId,
@@ -65,7 +99,7 @@ export async function handler(req) {
     }
 
     const trans = payment?.point_of_interaction?.transaction_data || {};
-    const amountOk = Number(payment?.transaction_amount) === PRICE_BRL;
+    const amountOk = Math.round(Number(payment?.transaction_amount) * 100) === amountCents;
     if (!payment?.id || !trans.qr_code || !amountOk) {
       if (payment?.id) await mpCancelPayment(payment.id).catch(() => {});
       await rpc('hotspot_fail_order', { p_order_id: orderId }).catch(() => {});
@@ -86,6 +120,7 @@ export async function handler(req) {
       qr_code: trans.qr_code, qr_code_base64: trans.qr_code_base64 || null,
       ticket_url: trans.ticket_url || null,
       seconds_left: secondsLeft(expiresAt.toISOString()),
+      plan_name: r.plan_name, amount_cents: amountCents,
     }, 200, headers);
   } catch (error) {
     if (error instanceof HttpError) return json({ error: error.message }, error.status, headers);

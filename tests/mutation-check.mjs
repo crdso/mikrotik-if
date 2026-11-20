@@ -31,7 +31,7 @@ const mutations = [
   { name: 'TS: router-sync sem autenticação', file: 'supabase/functions/router-sync/index.ts',
     find: "if (!(await routerAuthorized(req))) return json({ error: 'Unauthorized' }, 401);", repl: "if (false) return json({ error: 'Unauthorized' }, 401);", tests: ALL },
   { name: 'TS: preço vem do navegador', file: 'supabase/functions/create-payment/index.ts',
-    find: 'transaction_amount: PRICE_BRL,', repl: 'transaction_amount: Number(input?.amount ?? PRICE_BRL),', tests: ALL },
+    find: 'transaction_amount: amountCents / 100,', repl: 'transaction_amount: Number(input?.amount ?? amountCents / 100),', tests: ALL },
   { name: 'TS: reconciliação aceita pagamento de outro pedido', file: 'supabase/functions/payment-status/index.ts',
     find: 'String(payment?.external_reference) === id', repl: 'true', tests: ALL },
   { name: 'TS: CORS aceita qualquer origem', file: 'supabase/functions/_shared/common.ts',

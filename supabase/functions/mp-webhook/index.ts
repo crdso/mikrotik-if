@@ -3,7 +3,7 @@
 // confia no corpo: relê o pagamento na API do Mercado Pago e deixa o banco
 // conferir valor, moeda, meio e vínculo com o pedido.
 import {
-  MpError, env, isUuid, json, mpGetPayment, paymentApplyArgs, rpc, verifyMpSignature,
+  MpError, env, isUuid, json, mpGetPayment, paymentApplyArgs, recordFees, rpc, verifyMpSignature,
 } from '../_shared/common.ts';
 
 export async function handler(req) {
@@ -40,6 +40,7 @@ export async function handler(req) {
     if (!isUuid(orderId)) return json({ ok: true, ignored: 'no_order_reference' });
 
     const result = await rpc('hotspot_apply_payment', paymentApplyArgs(orderId, payment));
+    await recordFees(orderId, payment); // taxas do Mercado Pago, quando informadas (melhor esforço)
     if (['invalid_payment', 'payment_mismatch'].includes(result?.result)) {
       console.error('mp-webhook: pagamento recusado pelo banco', dataId, orderId, result.result);
     }

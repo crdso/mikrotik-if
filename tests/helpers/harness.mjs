@@ -15,6 +15,7 @@ export const ENV = {
   MP_WEBHOOK_SECRET: 'fake-webhook-secret',
   ROUTER_SHARED_KEY: 'fake-router-key_abc123',
   SITE_ORIGIN: 'https://site.netlify.app',
+  SUPABASE_ANON_KEY: 'sb_publishable_fake-anon-key',
 };
 export const FN_BASE = `${ENV.SUPABASE_URL}/functions/v1`;
 export const MAC_A = 'AA:BB:CC:DD:EE:01';
@@ -134,7 +135,8 @@ async function loadHandlers() {
       const common = await import(pathToFileURL(path.join(ROOT, 'supabase', 'functions', '_shared', 'common.ts')).href);
       return {
         createPayment: await imp('create-payment'), webhook: await imp('mp-webhook'),
-        paymentStatus: await imp('payment-status'), routerSync: await imp('router-sync'), common,
+        paymentStatus: await imp('payment-status'), routerSync: await imp('router-sync'),
+        plans: await imp('plans'), adminApi: await imp('admin-api'), common,
       };
     })();
   }
@@ -148,6 +150,7 @@ export async function createHarness() {
   await pg.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
     grant usage on schema public to anon, authenticated, service_role;
+    create schema auth; create table auth.users (id uuid primary key default gen_random_uuid(), email text);
     alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
     alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
   `);
@@ -157,6 +160,7 @@ export async function createHarness() {
 
   const mp = new FakeMercadoPago();
   const state = { rpcCalls: [], failRpc: null };
+  const authUsers = new Map(); // token -> { id, email }  (Supabase Auth simulado)
 
   async function rpcAsServiceRole(name, args = {}) {
     if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error('bad rpc name');
@@ -174,6 +178,13 @@ export async function createHarness() {
   globalThis.fetch = async (input, init = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url.startsWith('https://api.mercadopago.com/')) return mp.handle(url, init);
+    if (url === `${ENV.SUPABASE_URL}/auth/v1/user`) {
+      const hdr = Object.fromEntries(new Headers(init.headers || {}));
+      const token = /^Bearer (.+)$/.exec(hdr.authorization || '')?.[1];
+      const u = token && authUsers.get(token);
+      return u ? new Response(JSON.stringify(u), { status: 200, headers: { 'content-type': 'application/json' } })
+               : new Response('{"msg":"invalid JWT"}', { status: 401 });
+    }
     if (url.startsWith(`${ENV.SUPABASE_URL}/rest/v1/rpc/`)) {
       const name = url.slice(`${ENV.SUPABASE_URL}/rest/v1/rpc/`.length);
       const headers = Object.fromEntries(new Headers(init.headers || {}));
@@ -197,6 +208,19 @@ export async function createHarness() {
     q: async (sql, params) => (await pg.query(sql, params)).rows,
     orders: () => pg.query('select * from public.hotspot_orders order by created_at').then((r) => r.rows),
     order: (id) => pg.query('select * from public.hotspot_orders where id = $1', [id]).then((r) => r.rows[0]),
+    // Painel: cria usuário no Auth simulado (+ opcionalmente na allowlist) e chama a admin-api.
+    async makeUser(email, role = null) {
+      const id = randomUUID(); const token = `tok-${randomUUID()}`;
+      authUsers.set(token, { id, email });
+      await pg.query('insert into auth.users (id, email) values ($1, $2)', [id, email]);
+      if (role) await pg.query('insert into public.admin_users (user_id, role) values ($1, $2)', [id, role]);
+      return { id, email, token };
+    },
+    async admin(action, input = {}, token = null, origin = ENV.SITE_ORIGIN) {
+      const headers = token ? { authorization: `Bearer ${token}` } : {};
+      return read(await handlers.adminApi(req(`${FN_BASE}/admin-api`, { method: 'POST', headers, body: { action, ...input }, origin })));
+    },
+    async plansList() { return read(await handlers.plans(req(`${FN_BASE}/plans`))); },
     close: async () => { globalThis.fetch = realFetch; await pg.close(); },
 
     // Atalhos de fluxo -------------------------------------------------------

@@ -60,8 +60,10 @@ test('Edge Functions: só leem segredos pelo ambiente e nunca registram segredos
   }
   const common = read('supabase/functions/_shared/common.ts');
   assert.doesNotMatch(common, /Deno\.env\.get\('(MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY)'\)\s*\|\|\s*'[^']+'/, 'sem valores padrão para segredos');
-  assert.match(common, /PRICE_CENTS = 500/);
-  assert.match(common, /GRANT_SECONDS = 5 \* 60 \* 60/);
+  assert.doesNotMatch(common, /PRICE_(BRL|CENTS)|GRANT_SECONDS/, 'preço e duração vêm do plano (banco), nunca de constantes');
+  const cp = read('supabase/functions/create-payment/index.ts');
+  assert.match(cp, /hotspot_reserve_plan_order/); assert.match(cp, /amountCents/);
+  assert.doesNotMatch(cp, /input\??\.(amount|price|grant|seconds|price_cents|grant_seconds)/, 'o navegador não envia preço nem duração');
 });
 
 test('Portal: nada de JS/CSS inline, handlers inline ou recursos externos (compatível com a CSP)', () => {
@@ -124,7 +126,7 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   assert.match(live, /\} on-error=\{/, 'tratamento de erro no estilo do RouterOS 6');
   assert.doesNotMatch(read('router/diagnostico.rsc').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'),
     /\/(ip|system|interface|certificate)[^\n]*\s(add|set|remove|import|reset|disable|enable)\b/, 'diagnóstico é só leitura');
-  assert.match(read('supabase/functions/_shared/common.ts'), /GRANT_SECONDS = 5 \* 60 \* 60/);
+  assert.match(read('supabase/functions/router-sync/index.ts'), /rosTime\(o\.grant_seconds\)/, 'a duração enviada ao roteador é a do pedido');
   assert.match(read('docs/mikrotik.md'), /\/ip hotspot user profile add name=wifi-5h shared-users=1 rate-limit=1M\/4M/);
 });
 
