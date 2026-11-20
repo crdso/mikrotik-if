@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SQL = 'supabase/migrations/202611170001_hotspot_orders.sql';
-const ALL = ['tests/db.test.mjs', 'tests/functions.test.mjs', 'tests/e2e.test.mjs', 'tests/static.test.mjs'];
+const SQL2 = 'supabase/migrations/202611190002_device_credit.sql';
+const ALL = ['tests/db.test.mjs', 'tests/functions.test.mjs', 'tests/e2e.test.mjs', 'tests/device-credit.test.mjs', 'tests/static.test.mjs'];
 
 const mutations = [
   { name: 'SQL: ignora o valor pago na aprovação', file: SQL,
@@ -41,6 +42,10 @@ const mutations = [
     find: ':local maxGrant 2d', repl: ':local maxGrant 2d\n:onerror e in={ :put 1 } do={ :put 2 }', tests: ['tests/static.test.mjs'] },
   { name: 'RSC: aceita crédito acima do teto', file: 'router/hotspot-poll.rsc',
     find: ':local maxGrant 2d', repl: ':local maxGrant 999d', tests: ['tests/static.test.mjs'] },
+  { name: 'SQL: portal nunca enxerga o crédito como esgotado', file: SQL2,
+    find: "and o.provisioned_at is not null) then 'exhausted'", repl: "and o.provisioned_at is not null) then 'active'", tests: ALL },
+  { name: 'SQL: aviso de esgotado aceito para MAC sem crédito concedido', file: SQL2,
+    find: 'if v_last is null then continue; end if;', repl: '', tests: ALL },
   { name: 'Gerador do roteador aceita TLS sem validação', file: 'scripts/prepare-router.mjs',
     find: "if (!['yes-without-crl', 'yes'].includes(tls))", repl: 'if (false)', tests: ['tests/static.test.mjs'] },
   { name: 'Portal: volta a exibir suporte/telefone', file: 'site/index.html',

@@ -72,6 +72,14 @@ http.createServer(async (req, res) => {
       router.online = url.searchParams.get('online') === '1';
       return sendJson(res, 200, { router_online: router.online });
     }
+    if (url.pathname === '/__dev/exhaust' && req.method === 'POST') {   // o aparelho consome todo o crédito
+      const mac = (url.searchParams.get('mac') || '').toUpperCase();
+      const u = router.users.get(mac);
+      if (!u) return sendJson(res, 404, { error: 'roteador simulado não tem este usuário' });
+      u.uptime = u.limit; router.online = true;
+      await router.poll();
+      return sendJson(res, 200, { exhausted: true, reports: router.expReports.length });
+    }
     if (url.pathname === '/__dev/state') {
       return sendJson(res, 200, { router_online: router.online, router_users: Object.fromEntries(router.users), orders: await h.orders() });
     }

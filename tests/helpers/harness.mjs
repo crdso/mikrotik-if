@@ -2,7 +2,7 @@
 // verdadeira + Mercado Pago SIMULADO + PostgREST SIMULADO (apenas /rpc), tudo
 // local. As Edge Functions de produção rodam sem modificação sobre um shim do Deno.
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createHmac, randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -151,9 +151,9 @@ export async function createHarness() {
     alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
     alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
   `);
-  const migrationPath = path.join(ROOT, 'supabase', 'migrations', '202611170001_hotspot_orders.sql');
-  const migration = readFileSync(migrationPath, 'utf8');
-  await pg.exec(migration);
+  // Aplica TODAS as migrations, em ordem, como o Supabase faz.
+  const dir = path.join(ROOT, 'supabase', 'migrations');
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql')).sort()) await pg.exec(readFileSync(path.join(dir, f), 'utf8'));
 
   const mp = new FakeMercadoPago();
   const state = { rpcCalls: [], failRpc: null };
@@ -221,6 +221,12 @@ export async function createHarness() {
     async routerAckForm(order, mac, key = ENV.ROUTER_SHARED_KEY) {
       return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, {
         method: 'POST', origin: null, body: `order=${order}&mac=${mac}`,
+        headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
+    },
+    // Aviso do roteador: "expired=MAC1,MAC2," (crédito esgotado).
+    async routerReportExpired(list, key = ENV.ROUTER_SHARED_KEY) {
+      return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, {
+        method: 'POST', origin: null, body: `expired=${list}`,
         headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
     },
     async routerAck(order_id, mac, key = ENV.ROUTER_SHARED_KEY) {

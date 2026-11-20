@@ -17,10 +17,11 @@ function walk(dir, out = []) {
   return out;
 }
 
-test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS', () => {
-  const sql = read('supabase/migrations/202611170001_hotspot_orders.sql');
+test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS (todas as migrations)', () => {
+  for (const file of readdirSync(path.join(ROOT, 'supabase/migrations')).filter((n) => n.endsWith('.sql')).sort()) {
+  const sql = read(`supabase/migrations/${file}`);
   const created = [...sql.matchAll(/create or replace function public\.(\w+)\(([^)]*)\)/g)].map((m) => m[1]);
-  assert.ok(created.length >= 9);
+  assert.ok(created.length >= 1, file);
   const granted = sql.slice(sql.indexOf('foreach f in array'));
   for (const fn of created) assert.match(granted, new RegExp(`'${fn}\\(`), `${fn} sem revoke/grant`);
   assert.match(sql, /revoke all on function public\.%s from public, anon, authenticated/);
@@ -34,6 +35,7 @@ test('SQL: toda função criada é restrita a service_role; toda tabela tem RLS'
   for (const fn of created) {
     const body = sql.slice(sql.indexOf(`function public.${fn}(`));
     assert.match(body.slice(0, 700), /set search_path = public, pg_temp/, `${fn} sem search_path fixo`);
+  }
   }
 });
 
@@ -107,7 +109,8 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   const live = rsc.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // sem comentários, strings intactas
   assert.doesNotMatch(live, /check-certificate=no\b/, 'nunca desligar a validação TLS');
   assert.match(live, /:local tls "(yes-without-crl|yes)"/, 'validação de certificado ligada');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 2, 'GET e POST usam a validação');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 3, 'GET, ACK e aviso de esgotado usam a validação');
+  assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);
   assert.match(live, /X-Router-Key/);
@@ -233,13 +236,15 @@ test('Portal 3TRC_Starlink: textos exigidos, sem rodapé de suporte, ícones e i
   assert.doesNotMatch(html, /Suporte|WhatsApp|telefone|procure o respons/i, 'sem seção de suporte');
   assert.match(html, /<label for="email"/); assert.match(html, /type="email"[^>]*required/);
   // todas as telas do fluxo existem
-  for (const id of ['buy', 'pix', 'paid', 'done', 'ended', 'invalid', 'feedback']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['buy', 'pix', 'paid', 'done', 'ended', 'expired', 'loading', 'invalid', 'feedback', 'buymore']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const t of ['Seu tempo de internet acabou', 'Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.', 'R$ 5,00</span><span class="offer-dash"', 'Comprar mais 5 horas']) assert.ok(html.includes(t), `tela de tempo esgotado sem: ${t}`);
   const svg = read('site/art.svg');
   assert.ok(svg.length < 6000, `ilustração com ${svg.length} bytes`);
   assert.doesNotMatch(svg, /<script|<foreignObject|href=|xlink|style=|on[a-z]+=/i, 'SVG sem scripts, links ou estilos inline');
   assert.match(read('site/style.css'), /url\(\/art\.svg\)/);
   assert.doesNotMatch(read('site/style.css'), /@import|url\(\s*['"]?https?:/);
-  assert.match(read('site/app.js'), /\$\('paylabel'\)\.textContent = 'Gerar Pix'/, 'botão volta a "Gerar Pix"');
+  assert.match(read('site/app.js'), /const idle = fromExpired \? 'Comprar mais 5 horas' : 'Gerar Pix'/, 'botões voltam ao texto original');
+  assert.doesNotMatch(read('site/app.js'), /location\.(href|replace|assign)\s*=|window\.open|document\.cookie/, 'o portal nunca redireciona (sem loop com o Hotspot) nem usa cookies');
 });
 
 test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro e nunca grava a chave', async () => {
@@ -247,7 +252,7 @@ test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro
   const { rmSync } = await import('node:fs');
   const script = path.join(ROOT, 'scripts', 'prepare-router.mjs');
   const base = { ...process.env }; for (const k of ['PORTAL_URL', 'SUPABASE_PROJECT_REF', 'HOTSPOT_USER_PROFILE', 'HOTSPOT_SERVER_PROFILE', 'TLS_MODE', 'POLL_INTERVAL', 'ROUTER_OUT']) delete base[k];
-  const run = (env) => spawnSync(process.execPath, [script], { cwd: ROOT, env: { ...base, ROUTER_OUT: 'router-dist-test', ...env }, encoding: 'utf8' });
+  const run = (env) => spawnSync(process.execPath, [script], { cwd: ROOT, env: { ...base, ROUTER_OUT: 'router-dist-test', TEST_MAC: 'BA:28:2A:91:55:50', ...env }, encoding: 'utf8' });
   const ok = { PORTAL_URL: 'https://portal-exemplo.netlify.app', SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst', HOTSPOT_USER_PROFILE: 'plano-5h', HOTSPOT_SERVER_PROFILE: 'hsprof1' };
   const out = path.join(ROOT, 'router-dist-test');
   try {
@@ -265,6 +270,10 @@ test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro
     assert.match(poll, /:local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"/, 'chave só como placeholder');
     assert.equal((f('login.html').match(/https:\/\/portal-exemplo\.netlify\.app/g) || []).length, 3);
     assert.doesNotMatch(f('login.html') + poll + f('diagnostico.rsc'), /https:\/\/SEU-|SEU-PROJETO\.supabase|SEU-SITE\.netlify\.app\/\?/);
+    const shortG = f('ROTEIRO-CURTO.txt');
+    for (const t of ['plano-5h', 'hsprof1', 'login.html.original', 'ROLLBACK', 'o:', 'Seu tempo de internet acabou', 'NÃO repita']) assert.ok(shortG.includes(t), `roteiro curto sem "${t}"`);
+    assert.doesNotMatch(shortG, /user profile add|walled-garden ip add|\/certificate import|\/system reset|login-by=/i, 'roteiro curto não refaz o que já foi comprovado');
+    assert.match(f('CHECKLIST-MERCADO-PAGO.txt'), /NÃO ativa o webhook[\s\S]*Pagamentos \(payment\)/);
     const guide = f('INSTALACAO-WINBOX.txt');
     for (const t of ['plano-5h', 'hsprof1', 'login-by', 'ROLLBACK', 'VERIFICAÇÃO', 'TESTE-MANUAL-1', 'teste-mac', 'NÃO remova: o perfil plano-5h']) assert.ok(guide.includes(t), `roteiro sem "${t}"`);
     assert.doesNotMatch(guide, /user profile add|walled-garden ip add|\/certificate import|\/system reset/i, 'não recria perfil, Walled Garden nem certificado; sem reset');

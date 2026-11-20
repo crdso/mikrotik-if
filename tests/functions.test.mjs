@@ -311,7 +311,8 @@ test('payment-status: resposta pública mínima (sem MAC, payment_id ou token)',
   const { order } = await pendingOrder();
   const r = await h.status(order);
   assert.equal(r.status, 200);
-  assert.deepEqual(Object.keys(r.data).sort(), ['internet_ready', 'router_online', 'seconds_left', 'status']);
+  assert.deepEqual(Object.keys(r.data).sort(), ['device_credit', 'internet_ready', 'router_online', 'seconds_left', 'status']);
+  assert.equal(r.data.device_credit, null, 'pedido ainda não liberado não tem estado de crédito');
   assert.equal(r.data.status, 'pending'); assert.equal(r.data.internet_ready, false);
   assert.doesNotMatch(JSON.stringify(r.data), /AA:BB|payment_id|read_token/);
 });
