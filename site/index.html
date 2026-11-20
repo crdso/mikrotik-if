@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0b2557">
   <meta name="robots" content="noindex,nofollow">
-  <title>3TRC_Starlink • Internet no ônibus</title>
+  <title>Wifi a Bordo • Internet no ônibus</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/config.js"></script>
 </head>
@@ -15,7 +15,7 @@
     <svg class="hero-wifi" viewBox="0 0 64 52" width="58" height="47" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" aria-hidden="true">
       <path d="M6 18a36 36 0 0 1 52 0"/><path d="M16 29a22 22 0 0 1 32 0"/><circle cx="32" cy="43" r="3.2" fill="#fff" stroke="none"/>
     </svg>
-    <h1 class="brand">3TRC_Starlink</h1>
+    <h1 class="brand">Wifi a Bordo</h1>
     <p class="tagline">Internet no ônibus</p>
   </header>
 
@@ -92,7 +92,7 @@
       <button id="recheck" class="btn-ghost" type="button">Já paguei — verificar agora</button>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Se o app do banco disser que está sem internet, desligue o Wi-Fi por alguns segundos (ou use os dados móveis), pague e depois reconecte ao 3TRC_Starlink.</span>
+        <span>Se o app do banco disser que está sem internet, desligue o Wi-Fi por alguns segundos (ou use os dados móveis), pague e depois reconecte ao Wifi a Bordo.</span>
       </p>
     </div>
 
@@ -109,7 +109,6 @@
       <svg class="big-ok" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#dff5ea"/><circle cx="32" cy="32" r="30" fill="none" stroke="#1f9d62" stroke-width="3"/><path d="M19 33.5 28 42l17-19" fill="none" stroke="#1f9d62" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h2 class="title">Internet liberada!</h2>
       <p class="subtitle">Seu aparelho foi autorizado. Aproveite suas 5 horas.</p>
-      <a class="btn-primary" href="http://neverssl.com/">Abrir a internet</a>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
         <span>Se ainda aparecer esta tela, desligue e ligue o Wi-Fi do celular.</span>
@@ -153,16 +152,25 @@
     <!-- 6. Aberto fora da rede -->
     <div id="invalid" class="panel center" hidden>
       <svg class="big-wifi" viewBox="0 0 64 52" width="56" height="46" fill="none" stroke="#1565d8" stroke-width="7" stroke-linecap="round" aria-hidden="true"><path d="M6 18a36 36 0 0 1 52 0"/><path d="M16 29a22 22 0 0 1 32 0"/><circle cx="32" cy="43" r="3.4" fill="#1565d8" stroke="none"/></svg>
-      <h2 class="title">Conecte ao 3TRC_Starlink</h2>
-      <p class="subtitle">Abra esta página pela tela de login da rede <strong>3TRC_Starlink</strong>. O acesso é liberado para o aparelho que o roteador identifica.</p>
+      <h2 class="title">Conecte-se à rede Wifi a Bordo</h2>
+            <p class="subtitle">Conecte-se à rede <strong>Wifi a Bordo</strong> e abra a tela de login da rede. O acesso é liberado para o aparelho que o roteador identifica.</p>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
-        <span>Se a tela de login não abriu sozinha, abra o navegador e acesse qualquer site (ex.: neverssl.com).</span>
+        <span>Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo. Quando o pagamento for aprovado, a internet será liberada automaticamente.</span>
       </p>
     </div>
 
     <div id="feedback" class="state error" role="alert" hidden></div>
   </section>
+
+  <aside class="info">
+    <h2 class="info-title">Como funciona</h2>
+    <ol class="info-steps">
+      <li><span class="n">1</span><span><strong>Conecte-se à rede Wifi a Bordo.</strong> Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo.</span></li>
+      <li><span class="n">2</span><span><strong>Pague R$ 5,00 via Pix</strong> e tenha 5 horas de acesso, no celular ou no notebook.</span></li>
+      <li><span class="n">3</span><span><strong>Internet liberada automaticamente</strong> assim que o pagamento for aprovado, no aparelho que está usando esta página.</span></li>
+    </ol>
+  </aside>
 </main>
 <noscript><p class="noscript">Ative o JavaScript para pagar e liberar a internet.</p></noscript>
 <script src="/app.js"></script>

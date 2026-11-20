@@ -37,6 +37,9 @@ if (!/^\d{1,3}[smh]$/.test(interval)) die('POLL_INTERVAL inválido (ex.: 20s).')
 
 const portalHost = new URL(portal).host;
 const apiHost = `${ref}.supabase.co`;
+// Host do portal anterior: usado SÓ para remover a regra antiga do Walled Garden (migração de URL).
+const oldPortalHost = String(env.OLD_PORTAL_HOST || ['3trcstarlink', 'netlify', 'app'].join('.')).trim();
+if (!/^[a-z0-9][a-z0-9.-]*.[a-z]{2,}$/i.test(oldPortalHost)) die('OLD_PORTAL_HOST inválido.');
 const outDir = path.resolve(root, env.ROUTER_OUT || 'router-dist');
 if (!outDir.startsWith(root + path.sep)) die('A pasta de saída deve ficar dentro do projeto.');
 const read = (p) => readFileSync(path.join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -204,12 +207,24 @@ REVERSÃO TOTAL (ordem inversa)
 const shortGuide = `=====================================================================
  ROTEIRO CURTO — o que FALTA no MikroTik  (gerado por scripts/prepare-router.mjs)
 =====================================================================
-Considera concluídos e comprovados no equipamento: diagnóstico, CA, "mac" no login-by de
+Comprovados no equipamento: diagnóstico, CA, "mac" no login-by de
 ${serverProfile}, mac-auth-password vazio e o teste de login por MAC com corte por tempo.
 NÃO repita esses passos. Perfil de usuário reaproveitado: ${userProfile}. Walled Garden e certificado: já existem.
 Cada etapa abaixo tem verificação e rollback. A chave só no WinBox.
 
-A) LIMPAR O TESTE ANTERIOR (somente o que é teste)
+A0) WALLED GARDEN: trocar SOMENTE a regra do portal antigo pela do portal novo (não toca no Supabase)
+   1. Veja antes:   /ip hotspot walled-garden ip print detail where dst-host~"netlify.app" or dst-host~"supabase.co"
+   2. Remova a regra do portal ANTIGO (só ela):
+      /ip hotspot walled-garden ip remove [find where dst-host=${oldPortalHost}]
+   3. Crie a do portal novo SOMENTE se ainda não existir (não duplica):
+      :if ([:len [/ip hotspot walled-garden ip find where dst-host=${portalHost}]] = 0) do={ /ip hotspot walled-garden ip add action=accept dst-host=${portalHost} protocol=tcp dst-port=443 comment=wifi-a-bordo }
+   4. Confira:      /ip hotspot walled-garden ip print where comment=wifi-a-bordo
+      ESPERADO: uma regra para ${portalHost} e a do ${apiHost} (inalterada), ambas tcp/443.
+   ROLLBACK: /ip hotspot walled-garden ip remove [find where dst-host=${portalHost}]
+             /ip hotspot walled-garden ip add action=accept dst-host=${oldPortalHost} protocol=tcp dst-port=443 comment=wifi-a-bordo
+   (Se existir regra http/80 do portal antigo, apenas liste e me mostre; não apague às cegas.)
+
+A) LIMPAR O TESTE ANTERIOR — JÁ FEITO por você (remoção do usuário de teste); pule se já removeu
    /ip hotspot user print detail where name=${MAC} or comment~"teste"
    Confira que listou SÓ o usuário de teste do seu celular. Então:
    /ip hotspot active remove [find user=${MAC}]
@@ -282,7 +297,7 @@ Nenhum valor secreto deve ser colado em chats, arquivos ou no GitHub. Use soment
        $env:SITE_ORIGIN="${portal}"
        node scripts/smoke.mjs
 4) TESTE FINAL DE R$ 5 (você mesmo, com o seu dinheiro; estorno depois pelo painel do Mercado Pago, se quiser)
-   a) Celular no Wi-Fi 3TRC_Starlink, sem login -> abre o portal -> e-mail -> "Gerar Pix".
+   a) Celular na rede Wifi a Bordo, sem login -> abre o portal -> e-mail -> "Gerar Pix".
    b) Pague com outro aparelho/dados móveis (Copia e Cola ou QR).
    c) Em até ~30-40 s: "Internet liberada" e o celular navega.
    d) Confira no SQL Editor: select id, payment_status, paid_at, provisioned_at from public.hotspot_orders order by created_at desc limit 3;

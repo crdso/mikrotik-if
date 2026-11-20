@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import vm from 'node:vm';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { ROOT } from './helpers/harness.mjs';
 
@@ -69,7 +70,7 @@ test('Portal: nada de JS/CSS inline, handlers inline ou recursos externos (compa
   assert.doesNotMatch(html, /<style/i, 'style inline');
   assert.doesNotMatch(html, /\sstyle\s*=/i, 'atributo style');
   assert.doesNotMatch(html, /\son[a-z]+\s*=/i, 'handler inline');
-  assert.doesNotMatch(html, /(src|href)\s*=\s*"https?:\/\/(?!neverssl\.com)/i, 'recurso externo');
+  assert.doesNotMatch(html, /(src|href)\s*=\s*"https?:\/\//i, 'recurso externo');
   assert.match(html, /name="viewport"/);
   const css = read('site/style.css'); assert.doesNotMatch(css, /@import|url\(\s*['"]?https?:/i);
 });
@@ -149,7 +150,7 @@ test('Documentação: nome da rede e valores consistentes; sem segredos reais no
   const docs = ['README.md', ...docFiles].map(read).join('\n');
   assert.doesNotMatch(docs, /WIFI-[A-Z]/, 'nome de rede divergente');
   for (const f of docFiles) assert.ok(read('README.md').includes(f), `README não aponta para ${f}`);
-  assert.match(docs, /3TRC_Starlink|nome da rede/i);
+  assert.match(docs, /Wifi a Bordo|nome da rede/i);
   for (const secret of ['MP_ACCESS_TOKEN', 'MP_WEBHOOK_SECRET', 'ROUTER_SHARED_KEY', 'SITE_ORIGIN']) {
     assert.match(docs, new RegExp(secret)); assert.match(read('.env.example'), new RegExp(`^${secret}=`, 'm'));
   }
@@ -227,9 +228,9 @@ test('Netlify: netlify.toml correto, build por variável pública e nenhuma chav
   } finally { rmSync(out, { recursive: true, force: true }); }
 });
 
-test('Portal 3TRC_Starlink: textos exigidos, sem rodapé de suporte, ícones e ilustração leves e dentro da CSP', () => {
+test('Portal Wifi a Bordo: textos exigidos, sem rodapé de suporte, ícones e ilustração leves e dentro da CSP', () => {
   const html = read('site/index.html');
-  for (const t of ['3TRC_Starlink', 'Internet no ônibus', 'Acesse a internet', 'Pague via Pix e navegue por 5 horas', 'R$ 5,00', '5 horas',
+  for (const t of ['Wifi a Bordo', 'Internet no ônibus', 'Acesse a internet', 'Pague via Pix e navegue por 5 horas', 'R$ 5,00', '5 horas',
     'Seu e-mail', 'Digite seu e-mail', 'Gerar Pix', 'Internet<br>estável', 'Ativação<br>imediata', '5 horas<br>de acesso',
     'Após o pagamento, o acesso é liberado automaticamente neste aparelho.']) assert.ok(html.includes(t), `texto ausente: ${t}`);
   assert.doesNotMatch(html, /Wi-Fi a Bordo|WI-FI A BORDO/i, 'nome antigo do produto visível');
@@ -272,7 +273,11 @@ test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro
     assert.doesNotMatch(f('login.html') + poll + f('diagnostico.rsc'), /https:\/\/SEU-|SEU-PROJETO\.supabase|SEU-SITE\.netlify\.app\/\?/);
     const shortG = f('ROTEIRO-CURTO.txt');
     for (const t of ['plano-5h', 'hsprof1', 'login.html.original', 'ROLLBACK', 'o:', 'Seu tempo de internet acabou', 'NÃO repita']) assert.ok(shortG.includes(t), `roteiro curto sem "${t}"`);
-    assert.doesNotMatch(shortG, /user profile add|walled-garden ip add|\/certificate import|\/system reset|login-by=/i, 'roteiro curto não refaz o que já foi comprovado');
+    assert.doesNotMatch(shortG, /user profile add|\/certificate import|\/system reset|login-by=/i, 'roteiro curto não refaz o que já foi comprovado');
+    for (const l of shortG.split(/\r?\n/).filter((x) => /walled-garden ip add/.test(x) && !/ROLLBACK/.test(x) && !/^\s*\/ip hotspot walled-garden ip add/.test(x))) {
+      assert.match(l, /:if \(\[:len \[\/ip hotspot walled-garden ip find where dst-host=[^\]]+\]\] = 0\)/, 'regra nova só se ainda não existir (sem duplicar)');
+    }
+    assert.doesNotMatch(shortG, /walled-garden ip remove \[find comment=/, 'não remove por comentário (apagaria a regra do Supabase)');
     assert.match(f('CHECKLIST-MERCADO-PAGO.txt'), /NÃO ativa o webhook[\s\S]*Pagamentos \(payment\)/);
     const guide = f('INSTALACAO-WINBOX.txt');
     for (const t of ['plano-5h', 'hsprof1', 'login-by', 'ROLLBACK', 'VERIFICAÇÃO', 'TESTE-MANUAL-1', 'teste-mac', 'NÃO remova: o perfil plano-5h']) assert.ok(guide.includes(t), `roteiro sem "${t}"`);
@@ -281,4 +286,25 @@ test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro
     const keyLike = /(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{43}/; // 43 caracteres base64url com letra e dígito
     for (const n of readdirSync(out)) assert.doesNotMatch(f(n), keyLike, `possível chave em ${n}`);
   } finally { rmSync(out, { recursive: true, force: true }); }
+});
+
+test('Identidade Wifi a Bordo: sem nome antigo, sem neverssl, instruções novas e layout desktop', () => {
+  const tracked = execSync('git ls-files --cached --others --exclude-standard', { cwd: ROOT, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+    .filter((f) => !/^(node_modules|router-dist|capturas|dist-site|tests\/static\.test\.mjs)/.test(f) && !/\.(backup|png|jpg)$/.test(f) && f !== 'login.html' && f !== 'diagnostico.rsc');
+  for (const f of tracked) {
+    const txt = read(f);
+    assert.doesNotMatch(txt, /neverssl/i, `${f}: neverssl não pode aparecer`);
+    if (f !== 'scripts/prepare-router.mjs') assert.doesNotMatch(txt, /3\s?trc[ _-]?starlink/i, `${f}: nome antigo`);
+  }
+  // o único vestígio do host antigo é montado em partes, só para remover a regra antiga do Walled Garden
+  assert.match(read('scripts/prepare-router.mjs'), /\['3trcstarlink', 'netlify', 'app'\]\.join/);
+  const html = read('site/index.html');
+  assert.match(html, /<title>Wifi a Bordo/); assert.match(html, /<h1 class="brand">Wifi a Bordo<\/h1>/);
+  assert.ok(html.includes('Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo.'));
+  assert.ok(html.includes('Quando o pagamento for aprovado, a internet será liberada automaticamente.'));
+  assert.match(html, /<aside class="info">/);
+  assert.doesNotMatch(html, /href="https?:/i, 'nenhum link externo no portal');
+  const css = read('site/style.css');
+  for (const w of ['960px', '1600px', '640px']) assert.ok(css.includes(`min-width:${w}`), `breakpoint ${w}`);
+  assert.match(read('supabase/functions/_shared/common.ts'), /SERVICE_NAME = 'Wifi a Bordo'/);
 });

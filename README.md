@@ -188,7 +188,7 @@ Segurança do painel, isolamento dos passageiros, reinicialização e procedimen
 
 ## 🎨 Personalização do nome e do visual
 
-O portal exibe o nome do serviço no cabeçalho e nas mensagens. Para usar outro nome, troque `3TRC_Starlink` em `site/index.html`, `site/app.js`, `router/login.html` e na constante `SERVICE_NAME` de `supabase/functions/_shared/common.ts` (usada na mensagem de erro e na descrição da cobrança Pix). O visual é CSS puro (`site/style.css`) com um SVG leve (`site/art.svg`): sem fontes nem bibliotecas externas, compatível com a CSP e com navegadores de portal cativo.
+O portal exibe o nome do serviço no cabeçalho e nas mensagens. Para usar outro nome, troque `Wifi a Bordo` em `site/index.html`, `site/app.js`, `router/login.html` e na constante `SERVICE_NAME` de `supabase/functions/_shared/common.ts` (usada na mensagem de erro e na descrição da cobrança Pix). O visual é CSS puro (`site/style.css`) com um SVG leve (`site/art.svg`): sem fontes nem bibliotecas externas, compatível com a CSP e com navegadores de portal cativo.
 
 ## 🧪 Testes
 
