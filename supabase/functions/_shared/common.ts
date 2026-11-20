@@ -6,7 +6,7 @@
 // ---- Regras de negócio ------------------------------------------------------
 // Preço e duração NÃO são constantes: vêm do plano escolhido (tabela hotspot_plans), decididos só no servidor
 // e congelados em cada pedido (amount_cents / grant_seconds). O banco confere o valor do pagamento contra o pedido.
-export const PIX_TTL_MINUTES = 30;
+export const PIX_TTL_MINUTES = 5;
 export const SERVICE_NAME = 'Wifi a Bordo'; // nome exibido ao passageiro (mensagens e descrição da cobrança Pix)
 export const RECONCILE_SECONDS = 10; // intervalo mínimo entre consultas ao Mercado Pago por pedido
 
