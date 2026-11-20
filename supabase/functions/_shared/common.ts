@@ -3,10 +3,9 @@
 // Variáveis de ambiente são lidas a cada chamada (e não na carga do módulo),
 // para que a troca de um segredo (ex.: SITE_ORIGIN) valha sem novo deploy.
 
-// ---- Regras de negócio (fonte única; o banco confere o valor de novo) ------
-export const PRICE_BRL = 5;
-export const PRICE_CENTS = 500;
-export const GRANT_SECONDS = 5 * 60 * 60; // 5 horas de uso acumulado
+// ---- Regras de negócio ------------------------------------------------------
+// Preço e duração NÃO são constantes: vêm do plano escolhido (tabela hotspot_plans), decididos só no servidor
+// e congelados em cada pedido (amount_cents / grant_seconds). O banco confere o valor do pagamento contra o pedido.
 export const PIX_TTL_MINUTES = 30;
 export const SERVICE_NAME = 'Wifi a Bordo'; // nome exibido ao passageiro (mensagens e descrição da cobrança Pix)
 export const RECONCILE_SECONDS = 10; // intervalo mínimo entre consultas ao Mercado Pago por pedido
@@ -34,20 +33,20 @@ export function browserAllowed(req) {
   const origin = req.headers.get('origin') || '';
   return Boolean(origin) && allowedOrigins().includes(origin);
 }
-export function cors(req) {
+export function cors(req, withAuth = false) {
   const headers = { 'Vary': 'Origin', 'Cache-Control': 'no-store' };
   const origin = req.headers.get('origin') || '';
   if (origin && allowedOrigins().includes(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
-    headers['Access-Control-Allow-Headers'] = 'content-type';
+    headers['Access-Control-Allow-Headers'] = withAuth ? 'authorization, content-type' : 'content-type';
     headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
     headers['Access-Control-Max-Age'] = '600';
   }
   return headers;
 }
-export function preflight(req) {
+export function preflight(req, withAuth = false) {
   if (req.method !== 'OPTIONS') return null;
-  return new Response(null, { status: 204, headers: cors(req) });
+  return new Response(null, { status: 204, headers: cors(req, withAuth) });
 }
 export function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -80,6 +79,25 @@ export async function readBody(req, maxChars = 4096) {
 export function rosTime(seconds) {
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
   return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m${s % 60}s`;
+}
+
+// Duração do RouterOS -> segundos. Aceita "1w2d3h4m5s" e "[Nw][Nd]hh:mm:ss" (formas que o RouterOS 6 imprime).
+// Retorna null para qualquer outra coisa. Zero é válido (o chamador decide o que significa).
+export function parseRosDuration(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return null;
+  let m = /^(?:(\d{1,4})w)?(?:(\d{1,5})d)?(?:(\d{1,5})h)?(?:(\d{1,6})m)?(?:(\d{1,8})s)?$/.exec(t);
+  if (m && /\d/.test(t)) {
+    const [w, d, h, mi, s] = m.slice(1).map((x) => Number(x || 0));
+    return (((w * 7 + d) * 24 + h) * 60 + mi) * 60 + s;
+  }
+  m = /^(?:(\d{1,4})w)?(?:(\d{1,5})d)?(\d{1,3}):(\d{2}):(\d{2})$/.exec(t);
+  if (m) {
+    const [w, d, h, mi, s] = m.slice(1).map((x) => Number(x || 0));
+    if (mi > 59 || s > 59) return null;
+    return (((w * 7 + d) * 24 + h) * 60 + mi) * 60 + s;
+  }
+  return null;
 }
 
 // Chave do roteador: ROUTER_SHARED_KEY e, opcionalmente, ROUTER_SHARED_KEY_NEXT
@@ -128,7 +146,7 @@ export async function rpc(name, args = {}) {
     method: 'POST', headers, body: JSON.stringify(args), signal: AbortSignal.timeout(10000),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`rpc ${name} HTTP ${res.status}: ${text.slice(0, 200)}`);
+  if (!res.ok) throw new Error(`rpc ${name} HTTP ${res.status}: ${text.slice(0, 400)}`);
   return text ? JSON.parse(text) : null;
 }
 
@@ -170,6 +188,24 @@ export function paymentApplyArgs(orderId, payment) {
     p_currency: payment.currency_id == null ? null : String(payment.currency_id),
     p_method: payment.payment_method_id == null ? null : String(payment.payment_method_id),
   };
+}
+
+// Taxas informadas pelo Mercado Pago (melhor esforço; null se o pagamento não trouxer os campos).
+export function paymentFees(payment) {
+  const details = payment?.fee_details;
+  const netRaw = payment?.transaction_details?.net_received_amount;
+  if (!Array.isArray(details) || netRaw == null) return null;
+  const fee = details.reduce((sum, f) => sum + Number(f?.amount || 0), 0);
+  const net = Number(netRaw);
+  if (!Number.isFinite(fee) || !Number.isFinite(net) || fee < 0 || net < 0) return null;
+  return { fee_cents: Math.round(fee * 100), net_cents: Math.round(net * 100) };
+}
+export async function recordFees(orderId, payment) {
+  try {
+    if (payment?.status !== 'approved') return;
+    const f = paymentFees(payment);
+    if (f) await rpc('hotspot_record_fees', { p_order_id: orderId, p_fee_cents: f.fee_cents, p_net_cents: f.net_cents });
+  } catch (e) { console.error('recordFees:', String(e)); } // nunca derruba o fluxo de pagamento
 }
 
 // ---- Assinatura do webhook do Mercado Pago ----------------------------------

@@ -40,3 +40,6 @@ Feitas uma vez, contra o projeto publicado, **sem Mercado Pago e sem cobrança**
 
 ### Evidência de expiração sem histórico (`tests/expired-evidence.test.mjs`)
 Executa o `login.html` real numa sandbox com o roteador simulado: iPhone sem histórico, aparelho novo, MAC privado, retorno após compra, reboot, limite alterado pelo administrador, falhas/demoras e ausência de loops. O comportamento dos comandos `/file` do RouterOS só pode ser confirmado no equipamento físico (`D2` do roteiro).
+
+### Planos, painel e telemetria (`tests/plans-admin.test.mjs`)
+Cobre: criar/editar/desativar planos e limites; snapshot de preço e duração por pedido; plano inativo; manipulação de preço pelo navegador; webhook contra o valor congelado; soma de créditos de planos diferentes; troca de plano com Pix pendente (cancelar só se pendente; pagamento aprovado nunca cancelado); autorização no backend (sem token, token falso, usuário comum, operador somente leitura, `anon`/`authenticated` sem acesso); receita só de aprovados e não-teste, ticket médio, período anterior, séries por hora/dia no fuso de Fortaleza; estados de pagamento; telemetria (formatos de tempo, aparelhos desconhecidos, dados antigos não aparecem como atuais, roteador offline/online); modelo do `wifi-poll` com telemetria. O comportamento dos comandos RouterOS da telemetria só é confirmado no equipamento físico.

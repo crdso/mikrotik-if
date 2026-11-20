@@ -104,7 +104,7 @@
   // Tempo esgotado: confirmado pelo MikroTik (via backend) ou pelo próprio Hotspot. Nunca pelo navegador.
   function enterExpired() {
     stopTimers(); show('expired');
-    $('buymore').disabled = false; $('buymorelabel').textContent = 'Comprar mais 5 horas';
+    $('buymore').disabled = false; $('buymorelabel').textContent = expiredLabel();
   }
   function enterEnded(title, text) {
     stopTimers(); show('ended');
@@ -150,7 +150,74 @@
     } finally { checking = false; }
   }
 
-  // fromExpired: o botão "Comprar mais 5 horas" inicia o MESMO fluxo real de Pix (o servidor reaproveita
+  // ---- planos --------------------------------------------------------------
+  // Preço e duração vêm do servidor (função "plans"); o navegador só informa QUAL plano foi escolhido e o
+  // servidor decide o valor. Com um único plano ativo a tela fica como sempre foi (sem seleção).
+  let plans = [];
+  let selectedPlan = null;
+  const money = (cents) => 'R$ ' + (Number(cents) / 100).toFixed(2).replace('.', ',');
+  function duration(seconds) {
+    const s = Math.round(Number(seconds) || 0);
+    if (s < 3600) { const m = Math.max(1, Math.round(s / 60)); return m + (m === 1 ? ' minuto' : ' minutos'); }
+    const h = Math.floor(s / 3600); const m = Math.round((s % 3600) / 60);
+    if (m === 0) return h + (h === 1 ? ' hora' : ' horas');
+    return h + 'h' + String(m).padStart(2, '0');
+  }
+  const currentPlan = () => selectedPlan || plans.find((p) => p.is_default) || plans[0] || null;
+  const expiredLabel = () => (plans.length > 1 ? 'Escolher plano' : 'Comprar mais ' + duration((currentPlan() || {}).grant_seconds || 18000)); // 18000: só o texto padrão antes de a lista de planos carregar
+  function applyPlanTexts() {
+    const p = currentPlan(); if (!p) return;
+    const d = duration(p.grant_seconds); const many = plans.length > 1;
+    $('plansub').textContent = many ? 'Escolha seu acesso' : 'Pague via Pix e navegue por ' + d;
+    $('pricea').textContent = money(p.price_cents); $('pricetext').textContent = d;
+    const ben = $('benhours'); ben.textContent = d; ben.appendChild(document.createElement('br')); ben.appendChild(document.createTextNode('de acesso'));
+    $('donetext').textContent = 'Seu aparelho foi autorizado. ' + (/^1 |h\d\d$/.test(d) ? 'Aproveite seu acesso de ' : 'Aproveite suas ') + d + '.';
+    $('expsub').textContent = many ? 'Suas horas de acesso terminaram. Para continuar navegando, escolha um plano.'
+      : 'Suas horas de acesso terminaram. Para continuar navegando, adquira mais ' + d + '.';
+    const ip = $('infopay'); ip.textContent = ''; const st = document.createElement('strong');
+    st.textContent = many ? 'Escolha o plano e pague via Pix' : 'Pague ' + money(p.price_cents) + ' via Pix';
+    ip.append(st, document.createTextNode(many ? ', no celular ou no notebook.' : ' e tenha ' + d + ' de acesso, no celular ou no notebook.'));
+    $('offerprice').parentElement.hidden = many;
+    $('offerprice').textContent = money(p.price_cents); $('offertime').textContent = d;
+    if (!$('expired').hidden) $('buymorelabel').textContent = expiredLabel();
+  }
+  function renderPlans() {
+    const box = $('plans'); box.textContent = '';
+    if (plans.length < 2) { box.hidden = true; $('pricebox').hidden = false; applyPlanTexts(); return; }
+    $('pricebox').hidden = true; box.hidden = false;
+    selectedPlan = currentPlan();
+    plans.forEach((p) => {
+      const label = document.createElement('label'); label.className = 'plan' + (p.id === selectedPlan.id ? ' on' : '');
+      const input = document.createElement('input'); input.type = 'radio'; input.name = 'plan'; input.value = p.id; input.checked = p.id === selectedPlan.id;
+      input.addEventListener('change', () => {
+        selectedPlan = p;
+        box.querySelectorAll('.plan').forEach((el) => el.classList.toggle('on', el === label));
+        applyPlanTexts();
+      });
+      const main = document.createElement('span'); main.className = 'plan-main';
+      const name = document.createElement('span'); name.className = 'plan-name'; name.textContent = p.name;
+      const sub = document.createElement('span'); sub.className = 'plan-desc'; const dtxt = duration(p.grant_seconds); sub.textContent = (p.name.toLowerCase().includes(dtxt.toLowerCase()) ? '' : dtxt) + (p.description ? (p.name.toLowerCase().includes(dtxt.toLowerCase()) ? '' : ' · ') + p.description : '');
+      if (!sub.textContent) sub.hidden = true;
+      main.append(name, sub);
+      const price = document.createElement('span'); price.className = 'plan-price'; price.textContent = money(p.price_cents);
+      label.append(input, main, price);
+      if (p.highlight) { const b = document.createElement('span'); b.className = 'plan-badge'; b.textContent = 'Mais popular'; label.appendChild(b); }
+      box.appendChild(label);
+    });
+    applyPlanTexts();
+  }
+  async function loadPlans() {
+    try {
+      const r = await api('plans');
+      if (Array.isArray(r.plans) && r.plans.length) {
+        plans = r.plans;
+        selectedPlan = selectedPlan ? (plans.find((p) => p.id === selectedPlan.id) || null) : null;
+        renderPlans();
+      }
+    } catch (_) { /* sem a lista, valem os textos padrão e o servidor usa o plano padrão */ }
+  }
+
+  // fromExpired: o botão "Comprar mais ..." inicia o MESMO fluxo real de Pix (o servidor reaproveita
   // o Pix pendente do aparelho, então não há cobrança duplicada).
   async function createPix(fromExpired) {
     let email = $('email').value.trim();
@@ -163,11 +230,12 @@
     store(KEY + ':email', email);
     const btn = fromExpired ? $('buymore') : $('pay');
     const label = fromExpired ? $('buymorelabel') : $('paylabel');
-    const idle = fromExpired ? 'Comprar mais 5 horas' : 'Gerar Pix';
+    const idle = fromExpired ? expiredLabel() : 'Gerar Pix';
     btn.disabled = true; label.textContent = 'Gerando Pix…';
     try {
       const r = await api('create-payment', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac, email }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPlan() ? { mac, email, plan_id: currentPlan().id } : { mac, email }),
       });
       order = { order_id: r.order_id, read_token: r.read_token, qr_code: r.qr_code || '', qr_code_base64: r.qr_code_base64 || '', deadline: 0 };
       if (typeof r.seconds_left === 'number') order.deadline = Date.now() + r.seconds_left * 1000;
@@ -176,6 +244,7 @@
       if (r.status === 'paid') { enterPaid(); schedule(0); } else enterPix();
     } catch (e) {
       feedback(e.message);
+      if (e.status === 409 && /plano/i.test(e.message)) loadPlans(); // plano desativado/alterado: recarrega a lista
     } finally { btn.disabled = false; label.textContent = idle; }
   }
 
@@ -200,7 +269,7 @@
 
   // ---- eventos -------------------------------------------------------------
   $('pay').addEventListener('click', () => createPix(false));
-  $('buymore').addEventListener('click', () => createPix(true));
+  $('buymore').addEventListener('click', () => { if (plans.length > 1) { show('buy'); return; } createPix(true); });
   $('copy').addEventListener('click', copyCode);
   $('recheck').addEventListener('click', () => { setStatus('Verificando…'); schedule(0); });
   $('again').addEventListener('click', () => { show('buy'); $('email').focus(); });
@@ -211,6 +280,7 @@
   // ---- início --------------------------------------------------------------
   if (!MAC_OK || !API || API.includes('SEU-PROJETO')) { show('invalid'); return; }
   $('email').value = load(KEY + ':email') || '';
+  loadPlans();                                                         // planos ativos (não bloqueia a tela)
   order = recoverOrder();
   if (order && order.released) { enterLoading(); schedule(0); }       // já teve crédito: descobre o estado atual
   else if (order) { show('pix'); enterPix(); }                         // Pix em andamento

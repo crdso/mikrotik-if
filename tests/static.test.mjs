@@ -60,8 +60,10 @@ test('Edge Functions: só leem segredos pelo ambiente e nunca registram segredos
   }
   const common = read('supabase/functions/_shared/common.ts');
   assert.doesNotMatch(common, /Deno\.env\.get\('(MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY)'\)\s*\|\|\s*'[^']+'/, 'sem valores padrão para segredos');
-  assert.match(common, /PRICE_CENTS = 500/);
-  assert.match(common, /GRANT_SECONDS = 5 \* 60 \* 60/);
+  assert.doesNotMatch(common, /PRICE_(BRL|CENTS)|GRANT_SECONDS/, 'preço e duração vêm do plano (banco), nunca de constantes');
+  const cp = read('supabase/functions/create-payment/index.ts');
+  assert.match(cp, /hotspot_reserve_plan_order/); assert.match(cp, /amountCents/);
+  assert.doesNotMatch(cp, /input\??\.(amount|price|grant|seconds|price_cents|grant_seconds)/, 'o navegador não envia preço nem duração');
 });
 
 test('Portal: nada de JS/CSS inline, handlers inline ou recursos externos (compatível com a CSP)', () => {
@@ -110,7 +112,7 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   const live = rsc.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // sem comentários, strings intactas
   assert.doesNotMatch(live, /check-certificate=no\b/, 'nunca desligar a validação TLS');
   assert.match(live, /:local tls "(yes-without-crl|yes)"/, 'validação de certificado ligada');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 3, 'GET, ACK e aviso de esgotado usam a validação');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 5, 'GET, ACK, aviso de esgotado e os 2 envios de telemetria usam a validação');
   assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);
@@ -124,7 +126,7 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   assert.match(live, /\} on-error=\{/, 'tratamento de erro no estilo do RouterOS 6');
   assert.doesNotMatch(read('router/diagnostico.rsc').split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'),
     /\/(ip|system|interface|certificate)[^\n]*\s(add|set|remove|import|reset|disable|enable)\b/, 'diagnóstico é só leitura');
-  assert.match(read('supabase/functions/_shared/common.ts'), /GRANT_SECONDS = 5 \* 60 \* 60/);
+  assert.match(read('supabase/functions/router-sync/index.ts'), /rosTime\(o\.grant_seconds\)/, 'a duração enviada ao roteador é a do pedido');
   assert.match(read('docs/mikrotik.md'), /\/ip hotspot user profile add name=wifi-5h shared-users=1 rate-limit=1M\/4M/);
 });
 
@@ -218,10 +220,17 @@ test('Netlify: netlify.toml correto, build por variável pública e nenhuma chav
     assert.equal(viaRef.status, 0, viaRef.stderr);
     assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /https:\/\/abcdefghijklmnopqrst\.supabase\.co\/functions\/v1/);
     assert.match(readFileSync(path.join(out, '_headers'), 'utf8'), /connect-src https:\/\/abcdefghijklmnopqrst\.supabase\.co/);
-    assert.deepEqual(readdirSync(out).sort(), ['_headers', 'app.js', 'art.svg', 'config.js', 'index.html', 'style.css']);
-    for (const f of readdirSync(out)) {
-      assert.doesNotMatch(readFileSync(path.join(out, f), 'utf8'), /service_role|MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY|sb_secret_|apikey/i, `segredo/chave em ${f}`);
+    assert.deepEqual(readdirSync(out).sort(), ['_headers', '_redirects', 'admin', 'app.js', 'art.svg', 'config.js', 'index.html', 'style.css']);
+    assert.deepEqual(readdirSync(path.join(out, 'admin')).sort(), ['admin.css', 'admin.js', 'index.html', 'keys.js'], 'painel publicado só com arquivos estáticos esperados');
+    const published = [...readdirSync(out).filter((f) => f !== 'admin'), ...readdirSync(path.join(out, 'admin')).map((f) => `admin/${f}`)];
+    for (const f of published) {
+      const body = readFileSync(path.join(out, f), 'utf8');
+      // o painel envia o cabeçalho "apikey" (chave PUBLICÁVEL do Auth); nenhum outro termo sensível pode aparecer
+      assert.doesNotMatch(body, /service_role|MP_ACCESS_TOKEN|MP_WEBHOOK_SECRET|ROUTER_SHARED_KEY|sb_secret_/i, `segredo/chave em ${f}`);
+      if (!f.startsWith('admin/')) assert.doesNotMatch(body, /apikey/i, `apikey em ${f}`);
+      assert.doesNotMatch(body, /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./, `JWT em ${f}`);
     }
+    assert.match(readFileSync(path.join(out, 'admin', 'keys.js'), 'utf8'), /sb_publishable_[A-Za-z0-9_-]+/, 'só a chave publicável');
     const viaUrl = run(['', 'dist-site-test'], { SUPABASE_URL: 'https://zzzzzzzzzzzzzzzzzzzz.supabase.co' });
     assert.equal(viaUrl.status, 0, viaUrl.stderr);
     assert.match(readFileSync(path.join(out, 'config.js'), 'utf8'), /zzzzzzzzzzzzzzzzzzzz\.supabase\.co/);
@@ -244,7 +253,10 @@ test('Portal Wifi a Bordo: textos exigidos, sem rodapé de suporte, ícones e il
   assert.doesNotMatch(svg, /<script|<foreignObject|href=|xlink|style=|on[a-z]+=/i, 'SVG sem scripts, links ou estilos inline');
   assert.match(read('site/style.css'), /url\(\/art\.svg\)/);
   assert.doesNotMatch(read('site/style.css'), /@import|url\(\s*['"]?https?:/);
-  assert.match(read('site/app.js'), /const idle = fromExpired \? 'Comprar mais 5 horas' : 'Gerar Pix'/, 'botões voltam ao texto original');
+  assert.match(read('site/app.js'), /const idle = fromExpired \? expiredLabel\(\) : 'Gerar Pix'/, 'botões voltam ao texto original');
+  assert.match(read('site/app.js'), /'Comprar mais ' \+ duration/, 'rótulo "Comprar mais <duração do plano>"');
+  assert.match(read('site/app.js'), /plan_id: currentPlan\(\)\.id/, 'o navegador envia só o identificador do plano');
+  assert.doesNotMatch(read('site/app.js'), /price_cents:|grant_seconds:|amount:/, 'preço e duração nunca são enviados pelo navegador');
   assert.doesNotMatch(read('site/app.js'), /location\.(href|replace|assign)\s*=|window\.open|document\.cookie/, 'o portal nunca redireciona (sem loop com o Hotspot) nem usa cookies');
 });
 
@@ -330,4 +342,20 @@ test('RouterOS: aviso local de tempo esgotado só mexe em arquivos hsx-*.txt da 
   assert.match(login, /XMLHttpRequest/); assert.match(login, /\/hsx-/); assert.match(login, /exp=1/);
   assert.equal((login.match(/https:\/\/SEU-SITE\.netlify\.app/g) || []).length, 3);
   assert.doesNotMatch(login, /fetch\(|sendBeacon|supabase/i, 'a página de login não fala com a internet');
+});
+
+test('Painel /admin: sem innerHTML/eval, sem estilos ou scripts inline, só chave publicável e API do servidor', () => {
+  const js = read('site/admin/admin.js'); const html = read('site/admin/index.html');
+  assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/, 'dados do banco nunca viram HTML');
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>|<style|\sstyle\s*=|\son[a-z]+\s*=/i, 'compatível com a CSP');
+  assert.match(html, /name="robots" content="noindex,nofollow"/);
+  assert.doesNotMatch(js, /setAttribute\('style'|\.style\.cssText/, 'sem estilo inline por atributo');
+  new vm.Script(js, { filename: 'admin.js' });
+  assert.match(read('site/admin/keys.js'), /^window\.ADMIN_PUBLISHABLE_KEY = 'sb_publishable_[A-Za-z0-9_-]+';$/m);
+  assert.doesNotMatch(js, /\/rest\/v1\//, 'o painel nunca acessa tabelas direto: só admin-api e o login do Auth');
+  assert.match(js, /\/admin-api/); assert.match(js, /\/auth\/v1\/token/);
+  assert.match(read('site/_redirects'), /\/admin\/\*\s+\/admin\/index\.html\s+200/);
+  assert.match(read('site/_headers'), /\/admin\/\*\n  X-Robots-Tag: noindex/);
+  const cfg = read('supabase/config.toml');
+  for (const fn of ['plans', 'admin-api']) assert.ok(cfg.includes(`[functions.${fn}]`), `${fn} no config.toml`);
 });

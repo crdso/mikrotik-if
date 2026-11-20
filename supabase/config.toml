@@ -10,3 +10,9 @@ verify_jwt = false
 
 [functions.router-sync]
 verify_jwt = false
+
+[functions.plans]
+verify_jwt = false
+
+[functions.admin-api]
+verify_jwt = false

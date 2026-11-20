@@ -33,6 +33,8 @@
 :if ([:typeof $wifiPollFails] = "nothing") do={ :set wifiPollFails 0 }
 :global wifiExpSent
 :if ([:typeof $wifiExpSent] = "nothing") do={ :set wifiExpSent "" }
+:global wifiTelLast
+:if ([:typeof $wifiTelLast] = "nothing") do={ :set wifiTelLast 0s }
 
 :local api "https://SEU-PROJETO.supabase.co/functions/v1/router-sync"
 :local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"
@@ -40,6 +42,9 @@
 :local profile "wifi-5h"
 :local maxGrant 2d
 :local expMargin 10s
+# Telemetria para o painel: a cada telEvery o script envia, em blocos pequenos, uso/limite e sessao de cada aparelho.
+# Nao ha uma requisicao por aparelho (ate 10 por bloco) e nada e gravado na memoria flash.
+:local telEvery 60s
 # Servidor Hotspot (o gerador troca pelo seu). A pasta HTML (ex.: flash/hotspot) e LIDA deste perfil a cada
 # execucao (html-directory); e la que ficam os avisos "hsx-<MAC>.txt".
 :local hprof "hsprof1"
@@ -165,6 +170,38 @@
             }
             :set wifiExpSent $keep
         } on-error={ :log warning "wifi-poll: erro ao verificar creditos esgotados" }
+
+        # Telemetria (a cada telEvery): quantas sessoes autenticadas existem e, por aparelho, "MAC_IP_uso_limite_A".
+        # Uso e limite vao no formato de tempo do RouterOS (o servidor entende 1h2m3s e 01:02:03). So leitura no roteador.
+        :do {
+            :if (($now - $wifiTelLast) >= $telEvery) do={
+                :set wifiTelLast $now
+                :local online [:len [/ip hotspot active find]]
+                :local batch ""
+                :local nb 0
+                :local sentAny false
+                :foreach eu in=[/ip hotspot user find where comment~"o:"] do={
+                    :local nm [/ip hotspot user get $eu name]
+                    :if ([:len $nm] = 17) do={
+                        :local act [/ip hotspot active find where user=$nm]
+                        :local ip ""
+                        :local fl "0"
+                        :if ([:len $act] > 0) do={ :set fl "1"; :set ip [/ip hotspot active get ($act->0) address] }
+                        :set batch ($batch . $nm . "_" . $ip . "_" . [/ip hotspot user get $eu uptime] . "_" . [/ip hotspot user get $eu limit-uptime] . "_" . $fl . ",")
+                        :set nb ($nb + 1)
+                        :if ($nb >= 10) do={
+                            /tool fetch url=$api mode=https http-method=post http-data=("online=" . $online . "&tel=" . $batch) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
+                            :set batch ""
+                            :set nb 0
+                            :set sentAny true
+                        }
+                    }
+                }
+                :if (($nb > 0) || ($sentAny = false)) do={
+                    /tool fetch url=$api mode=https http-method=post http-data=("online=" . $online . "&tel=" . $batch) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
+                }
+            }
+        } on-error={ :log warning "wifi-poll: falha ao enviar telemetria" }
     } else={
         :set wifiPollFails ($wifiPollFails + 1)
         :if (($wifiPollFails = 1) || (($wifiPollFails % 30) = 0)) do={

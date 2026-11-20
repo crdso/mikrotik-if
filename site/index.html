@@ -24,14 +24,17 @@
     <!-- 1. Oferta -->
     <div id="buy" class="panel" hidden>
       <h2 class="title">Acesse a internet</h2>
-      <p class="subtitle">Pague via Pix e navegue por 5 horas</p>
+      <p class="subtitle" id="plansub">Pague via Pix e navegue por 5 horas</p>
 
-      <div class="price-box">
-        <span class="price-amount">R$ 5,00</span>
+      <!-- Escolha de plano: só aparece quando há 2 ou mais planos ativos (preenchido por app.js) -->
+      <div id="plans" class="plan-list" role="radiogroup" aria-label="Escolha seu acesso" hidden></div>
+
+      <div class="price-box" id="pricebox">
+        <span class="price-amount" id="pricea">R$ 5,00</span>
         <span class="price-sep" aria-hidden="true"></span>
         <span class="price-time">
           <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#1565d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg>
-          5 horas
+          <span id="pricetext">5 horas</span>
         </span>
       </div>
 
@@ -62,7 +65,7 @@
         </li>
         <li>
           <span class="ico"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#1565d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.6 2.2"/></svg></span>
-          <span class="ben-text">5 horas<br>de acesso</span>
+          <span class="ben-text" id="benhours">5 horas<br>de acesso</span>
         </li>
       </ul>
 
@@ -108,7 +111,7 @@
     <div id="done" class="panel center" hidden>
       <svg class="big-ok" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#dff5ea"/><circle cx="32" cy="32" r="30" fill="none" stroke="#1f9d62" stroke-width="3"/><path d="M19 33.5 28 42l17-19" fill="none" stroke="#1f9d62" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h2 class="title">Internet liberada!</h2>
-      <p class="subtitle">Seu aparelho foi autorizado. Aproveite suas 5 horas.</p>
+      <p class="subtitle" id="donetext">Seu aparelho foi autorizado. Aproveite suas 5 horas.</p>
       <p class="notice small">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#0b2a6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 10.8v6"/><circle cx="12" cy="7.4" r=".6" fill="#0b2a6b"/></svg>
         <span>Se ainda aparecer esta tela, desligue e ligue o Wi-Fi do celular.</span>
@@ -119,8 +122,8 @@
     <div id="expired" class="panel center" hidden>
       <svg class="big-clock" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#fff1dc"/><circle cx="32" cy="32" r="30" fill="none" stroke="#e08a00" stroke-width="3"/><path d="M32 16v17l11 7" fill="none" stroke="#e08a00" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h2 class="title">Seu tempo de internet acabou</h2>
-      <p class="subtitle">Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.</p>
-      <p class="offer-box"><span class="offer-price">R$ 5,00</span><span class="offer-dash" aria-hidden="true">—</span><span class="offer-time">5 horas</span></p>
+      <p class="subtitle" id="expsub">Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.</p>
+      <p class="offer-box"><span class="offer-price" id="offerprice">R$ 5,00</span><span class="offer-dash" aria-hidden="true">—</span><span class="offer-time" id="offertime">5 horas</span></p>
       <button id="buymore" class="btn-primary" type="button">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">
           <rect x="-3" y="-3" width="6" height="6" rx="1.4" transform="translate(12 5.2) rotate(45)"/>
@@ -167,7 +170,7 @@
     <h2 class="info-title">Como funciona</h2>
     <ol class="info-steps">
       <li><span class="n">1</span><span><strong>Conecte-se à rede Wifi a Bordo.</strong> Se a tela não abrir automaticamente, use a opção de login da rede exibida pelo seu dispositivo.</span></li>
-      <li><span class="n">2</span><span><strong>Pague R$ 5,00 via Pix</strong> e tenha 5 horas de acesso, no celular ou no notebook.</span></li>
+      <li><span class="n">2</span><span id="infopay"><strong>Pague R$ 5,00 via Pix</strong> e tenha 5 horas de acesso, no celular ou no notebook.</span></li>
       <li><span class="n">3</span><span><strong>Internet liberada automaticamente</strong> assim que o pagamento for aprovado, no aparelho que está usando esta página.</span></li>
     </ol>
   </aside>

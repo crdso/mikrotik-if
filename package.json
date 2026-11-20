@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Wi-Fi a Bordo: Hotspot MikroTik + Pix (Mercado Pago) + Supabase + Netlify",
   "scripts": {
-    "test": "node --test --test-concurrency=1 tests/static.test.mjs tests/db.test.mjs tests/functions.test.mjs tests/router-protocol.test.mjs tests/device-credit.test.mjs tests/expired-evidence.test.mjs tests/secrets-missing.test.mjs tests/e2e.test.mjs",
+    "test": "node --test --test-concurrency=1 tests/static.test.mjs tests/db.test.mjs tests/functions.test.mjs tests/router-protocol.test.mjs tests/device-credit.test.mjs tests/expired-evidence.test.mjs tests/plans-admin.test.mjs tests/secrets-missing.test.mjs tests/e2e.test.mjs",
     "test:mutation": "node tests/mutation-check.mjs",
     "dev": "node dev/server.mjs",
     "prepare-site": "node scripts/prepare-site.mjs",

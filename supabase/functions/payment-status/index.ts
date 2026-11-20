@@ -3,7 +3,7 @@
 // Se o pedido segue pendente, reconcilia com o Mercado Pago (no máximo uma
 // consulta a cada RECONCILE_SECONDS por pedido), cobrindo falha do webhook.
 import {
-  RECONCILE_SECONDS, browserAllowed, cors, isUuid, json, mpGetPayment, paymentApplyArgs, preflight, rpc,
+  RECONCILE_SECONDS, browserAllowed, cors, isUuid, json, mpGetPayment, paymentApplyArgs, preflight, recordFees, rpc,
 } from '../_shared/common.ts';
 
 function publicView(s) {
@@ -36,6 +36,7 @@ export async function handler(req) {
         const payment = await mpGetPayment(s.reconcile_payment_id);
         if (String(payment?.id) === s.reconcile_payment_id && String(payment?.external_reference) === id) {
           await rpc('hotspot_apply_payment', paymentApplyArgs(id, payment));
+          await recordFees(id, payment);
           s = await rpc('hotspot_order_status', { p_order_id: id, p_token: token, p_reconcile_after_seconds: 3600 });
         }
       } catch (e) {

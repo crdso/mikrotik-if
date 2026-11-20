@@ -25,9 +25,11 @@ export class RouterSim {
     this.busy = false;        // variável global (some no reboot)
     this.expSent = '';        // variável global wifiExpSent (some no reboot)
     this.expReports = [];     // avisos de esgotado enviados (para os testes)
+    this.sessions = new Set(); // aparelhos com sessão autenticada no Hotspot agora (somem no reboot)
+    this.telPosts = [];        // blocos de telemetria enviados (para os testes)
     this.flags = new Set();   // arquivos hsx-<MAC>.txt na pasta do Hotspot (sobrevivem ao reboot, como arquivos)
   }
-  reboot() { this.busy = false; this.failedPolls = 0; this.acks = []; this.expSent = ''; } // usuários e uptime persistem
+  reboot() { this.sessions.clear(); this.busy = false; this.failedPolls = 0; this.acks = []; this.expSent = ''; } // usuários e uptime persistem
 
   // Mesma lógica de fatiamento por posição do script.
   static parseLine(line) {
@@ -88,6 +90,23 @@ export class RouterSim {
       if (r.status === 200) keep.push(...toRep); // se falhar, tenta de novo no próximo ciclo
     }
     this.expSent = keep.length ? keep.join(',') + ',' : '';
+  }
+
+  // Espelha o bloco de TELEMETRIA do script: "MAC_IP_uso_limite_A" em blocos de até 10, formato de tempo hh:mm:ss.
+  async telemetry(ipOf = (i) => `192.168.88.${10 + i}`) {
+    const fmt = (t) => `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+    const entries = []; let i = 0;
+    for (const [name, u] of this.users) {
+      if (!u.comment.includes('o:') || name.length !== 17) continue;
+      const act = this.sessions.has(name);
+      entries.push(`${name}_${act ? ipOf(i) : ''}_${fmt(u.uptime)}_${fmt(u.limit)}_${act ? 1 : 0}`); i++;
+    }
+    const blocks = []; for (let k = 0; k < entries.length; k += 10) blocks.push(entries.slice(k, k + 10));
+    if (!blocks.length) blocks.push([]);
+    for (const b of blocks) {
+      const r = await this.h.routerTelemetry(b.join(',') + (b.length ? ',' : ''), this.sessions.size);
+      this.telPosts.push({ entries: b.length, status: r.status });
+    }
   }
 
   // O passageiro usa N segundos (o Hotspot corta no limit-uptime).
