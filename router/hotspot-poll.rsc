@@ -20,6 +20,8 @@
 #   R = revogar/bloquear (desativa o usuario e derruba a sessao; o backend nunca reenvia G enquanto revogado/bloqueado)
 #   K = derrubar a sessao agora (temporario: com direito valido, o login por MAC volta)
 #   A = reautenticar (recuperacao de aparelho preso em Hosts)
+#   L = como G, para tempo corrido: "C <id> L <MAC> <segundos>" grava limit-uptime = uso atual + restante (teto local)
+#   T = cortesia de 2 min para pagar o Pix (usuario "t:pix", limit-uptime 2m); falha volta como erro, nunca como "ok"
 # Resultado volta por POST cmd=<id>&mac=<MAC>&r=<ok|auth|login|nohost|err>.
 #
 # Por que reautenticar: o Hotspot tenta o login por MAC quando o aparelho APARECE em /ip hotspot host. Se o
@@ -75,13 +77,16 @@
     :if ([:len [/ip hotspot active find where mac-address=$m]] > 0) do={ :return "auth" }
     :local hh [/ip hotspot host find where mac-address=$m]
     :if ([:len $hh] = 0) do={ :return "nohost" }
-    :local hip [/ip hotspot host get ($hh->0) address]
+    :local hip ""
+    :do { :set hip [/ip hotspot host get ($hh->0) address] } on-error={ :return "nohost" }
     :local r "login"
     :do {
         /ip hotspot active login user=$m password="" mac-address=$m ip=$hip
     } on-error={
-        :do { /ip hotspot host remove ($hh->0) } on-error={ :set r "err" }
+        # Plano B: remove SO as entradas deste MAC em Hosts (voltam no proximo pacote e o login por MAC e tentado de novo)
+        :foreach x in=$hh do={ :do { /ip hotspot host remove $x } on-error={ :set r "err" } }
     }
+    :delay 500ms
     :if ([:len [/ip hotspot active find where mac-address=$m]] > 0) do={ :set r "auth" }
     :return $r
 }
@@ -108,14 +113,14 @@
     :local ok false
     :local resp ""
     :do {
-        # Aparelhos presentes no Hotspot (ate 80), "AA-BB-CC-DD-EE-FF|IP|a;..." no cabecalho X-Hosts ("a" = autenticado,
+        # Aparelhos presentes no Hotspot (ate 60), "AA-BB-CC-DD-EE-FF|IP|a;..." no cabecalho X-Hosts ("a" = autenticado,
         # "n" = nao). O servidor so aceita cadastro/Pix de quem o roteador ve e o painel mostra quem esta navegando.
         # Falha aqui envia sem a lista.
         :local hosts ""
         :local hc 0
         :do {
             :foreach hh in=[/ip hotspot host find] do={
-                :if ($hc < 80) do={
+                :if ($hc < 60) do={
                     :local hm [:tostr [/ip hotspot host get $hh mac-address]]
                     :if ([:len $hm] = 17) do={
                         :local hip ""
@@ -144,31 +149,50 @@
             :if ([:typeof $nl] = "nil") do={ :set nl $len }
             :local line [:pick $resp $pos $nl]
             :set pos ($nl + 1)
+            # remove "\r" final (resposta com CRLF nao pode descartar a linha em silencio)
+            :if (([:len $line] > 0) && ([:pick $line ([:len $line] - 1) [:len $line]] = "\r")) do={ :set line [:pick $line 0 ([:len $line] - 1)] }
 
             # ---- comando "C <id> <tipo> <MAC>" (58 caracteres) ----
-            :if (([:len $line] = 58) && ([:pick $line 0 2] = "C ")) do={
+            :if (([:len $line] >= 58) && ([:len $line] <= 66) && ([:pick $line 0 2] = "C ")) do={
                 :local cid [:pick $line 2 38]
                 :local k [:pick $line 39 40]
                 :local mac [:pick $line 41 58]
                 :local valid true
                 :if (([:pick $line 38 39] != " ") || ([:pick $line 40 41] != " ")) do={ :set valid false }
-                :foreach p in={2;5;8;11;14} do={ :if ([:pick $mac $p ($p + 1)] != ":") do={ :set valid false } }
-                :foreach p in={8;13;18;23} do={ :if ([:pick $cid $p ($p + 1)] != "-") do={ :set valid false } }
-                :if (($k != "G") && ($k != "R") && ($k != "K") && ($k != "A") && ($k != "T")) do={ :set valid false }
+                # MAC em MAIUSCULAS e id hexadecimal: valida o conteudo, nao so as posicoes
+                :if (!($mac ~ "^([0-9A-F][0-9A-F]:){5}[0-9A-F][0-9A-F]\$")) do={ :set valid false }
+                :if (!($cid ~ "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$")) do={ :set valid false }
+                :if (($k != "G") && ($k != "L") && ($k != "R") && ($k != "K") && ($k != "A") && ($k != "T")) do={ :set valid false }
+                # "L": liberacao de tempo corrido com teto de USO = segundos restantes (protecao se o servidor sumir)
+                :local cap 0s
+                :if ($k = "L") do={
+                    :if (([:len $line] < 60) || ([:pick $line 58 59] != " ")) do={ :set valid false } else={
+                        :local digits [:pick $line 59 [:len $line]]
+                        :for d from=0 to=([:len $digits] - 1) do={ :if ([:typeof [:find "0123456789" [:pick $digits $d ($d + 1)]]] = "nil") do={ :set valid false } }
+                        :if ($valid) do={ :set cap [:totime ($digits . "s")] }
+                        :if (($cap <= 0s) || ($cap > 30d)) do={ :set valid false }
+                    }
+                } else={ :if ([:len $line] != 58) do={ :set valid false } }
                 :if ($valid) do={
                     :local res "err"
                     :do {
-                        :if ($k = "G") do={
+                        :if (($k = "G") || ($k = "L")) do={
                             :local u [/ip hotspot user find where name=$mac]
+                            :local oldlim 0s
                             :if ([:len $u] = 0) do={
                                 /ip hotspot user add name=$mac password="" mac-address=$mac profile=$profile limit-uptime=0s comment="v:viagem"
+                                :set u [/ip hotspot user find where name=$mac]
                             } else={
+                                :set oldlim [/ip hotspot user get ($u->0) limit-uptime]
                                 /ip hotspot user set $u disabled=no mac-address=$mac profile=$profile limit-uptime=0s comment="v:viagem"
                             }
+                            :if ($k = "L") do={ /ip hotspot user set $u limit-uptime=([/ip hotspot user get ($u->0) uptime] + $cap) comment="v:tempo" }
+                            # Sessao aberta com limite antigo (cortesia, horas ou tempo corrido anterior): o tempo da sessao e
+                            # fixado no login; derruba SO este MAC para relogar ja com o limite novo (queda de ~1 s).
+                            :if (($oldlim > 0s) || ($k = "L")) do={ :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a } }
                             :do { /file remove [/file find where name=($hdir . "/hsx-" . [:pick $mac 0 2] . "-" . [:pick $mac 3 5] . "-" . [:pick $mac 6 8] . "-" . [:pick $mac 9 11] . "-" . [:pick $mac 12 14] . "-" . [:pick $mac 15 17] . ".txt")] } on-error={ }
                             :set wifiHealDone ($wifiHealDone . $mac . ",")
                             :set res [$heal m=$mac]
-                            :if ($res = "err") do={ :set res "ok" }
                         }
                         :if ($k = "T") do={
                             # Cortesia de 2 min para pagar o Pix: so cria/renova usuario de cortesia ("t:"); nunca mexe
@@ -178,12 +202,21 @@
                                 /ip hotspot user add name=$mac password="" mac-address=$mac profile=$profile limit-uptime=2m comment="t:pix"
                                 :set res [$heal m=$mac]
                             } else={
-                                :if (([/ip hotspot user get ($u->0) comment] = "t:pix") && ([/ip hotspot user get ($u->0) disabled] = false)) do={
-                                    /ip hotspot user set ($u->0) limit-uptime=([/ip hotspot user get ($u->0) uptime] + 2m)
+                                :if ([/ip hotspot user get ($u->0) disabled] = true) do={
+                                    # So chega T para desativado por TEMPO VENCIDO (bloqueio/revogacao do organizador nunca
+                                    # recebem cortesia no servidor): vira usuario de cortesia de 2 min.
+                                    /ip hotspot user set ($u->0) disabled=no comment="t:pix" limit-uptime=([/ip hotspot user get ($u->0) uptime] + 2m)
+                                    :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
                                     :set res [$heal m=$mac]
-                                } else={ :set res "ok" }
+                                } else={
+                                    :if ([/ip hotspot user get ($u->0) comment] = "t:pix") do={
+                                        /ip hotspot user set ($u->0) limit-uptime=([/ip hotspot user get ($u->0) uptime] + 2m)
+                                        :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
+                                    }
+                                    # usuario de viagem/horas ativo: nao mexe; informa o estado REAL da sessao
+                                    :set res [$heal m=$mac]
+                                }
                             }
-                            :if ($res = "err") do={ :set res "ok" }
                         }
                         :if ($k = "A") do={
                             :local u [/ip hotspot user find where name=$mac disabled=no]
@@ -193,11 +226,11 @@
                             } else={ :set res "err" }
                         }
                         :if ($k = "R") do={
-                            :local u [/ip hotspot user find where name=$mac]
-                            :if ([:len $u] > 0) do={ /ip hotspot user set $u disabled=yes }
-                            :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
-                            :foreach c in=[/ip hotspot cookie find where mac-address=$mac] do={ /ip hotspot cookie remove $c }
+                            # Cada passo roda mesmo que outro falhe; qualquer falha vira "err" (o servidor reenvia).
                             :set res "ok"
+                            :do { :foreach x in=[/ip hotspot user find where name=$mac or mac-address=$mac] do={ /ip hotspot user set $x disabled=yes } } on-error={ :set res "err" }
+                            :do { :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a } } on-error={ :set res "err" }
+                            :do { :foreach c in=[/ip hotspot cookie find where mac-address=$mac] do={ /ip hotspot cookie remove $c } } on-error={ :set res "err" }
                         }
                         :if ($k = "K") do={
                             :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
