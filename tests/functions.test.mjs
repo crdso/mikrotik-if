@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHarness, signedWebhook, req, read, ENV, FN_BASE, MAC_A, MAC_B } from './helpers/harness.mjs';
 
 let h;
-before(async () => { h = await createHarness(); });
+before(async () => { h = await createHarness(); await h.useLegacyPlan(); }); // modelo antigo de horas (pedidos históricos)
 after(async () => { await h.close(); });
 beforeEach(async () => {
   await h.q('delete from public.hotspot_orders');
@@ -79,9 +79,11 @@ test('create-payment: CORS preflight só para a origem do site; várias origens 
 });
 
 test('create-payment: entradas inválidas -> 400/413 sem criar pedido', async () => {
+  await h.q('delete from public.hotspot_passengers');
   for (const [body, status] of [
-    [{ mac: 'zz', email: 'a@b.co' }, 400], [{ email: 'a@b.co' }, 400], [{ mac: MAC_A, email: 'sem-arroba' }, 400],
-    [{ mac: MAC_A, email: `${'a'.repeat(250)}@b.co` }, 400], [{ mac: MAC_A }, 400], ['{nao-json', 400],
+    [{ mac: 'zz', name: 'Ana Maria', email: 'a@b.co' }, 400], [{ name: 'Ana Maria', email: 'a@b.co' }, 400], [{ mac: MAC_A, name: 'Ana Maria', email: 'sem-arroba' }, 400],
+    [{ mac: MAC_A, email: 'a@b.co' }, 400], [{ mac: MAC_A, name: 'Ana', email: 'a@b.co' }, 400], [{ mac: MAC_A, name: 'Ana <b>Maria', email: 'a@b.co' }, 400], [{ mac: MAC_A, name: 'A'.repeat(81) + ' Silva', email: 'a@b.co' }, 400],
+    [{ mac: MAC_A, name: 'Ana Maria', email: `${'a'.repeat(250)}@b.co` }, 400], [{ mac: MAC_A }, 428], ['{nao-json', 400],
     [JSON.stringify({ mac: MAC_A, email: 'a@b.co', lixo: 'x'.repeat(5000) }), 413],
   ]) {
     const r = await read(await h.createPayment(createReq(body)));

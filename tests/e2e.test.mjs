@@ -7,7 +7,7 @@ import { RouterSim } from './helpers/router-sim.mjs';
 
 let h; let router;
 const H5 = 5 * 3600;
-before(async () => { h = await createHarness(); });
+before(async () => { h = await createHarness(); await h.useLegacyPlan(); }); // modelo antigo de horas (pedidos históricos)
 after(async () => { await h.close(); });
 beforeEach(async () => {
   await h.q('delete from public.hotspot_orders');

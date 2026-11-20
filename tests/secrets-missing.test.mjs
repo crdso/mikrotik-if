@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHarness, signedWebhook, req, read, ENV, FN_BASE, MAC_A } from './helpers/harness.mjs';
 
 let h;
-before(async () => { h = await createHarness(); });
+before(async () => { h = await createHarness(); await h.useLegacyPlan(); }); // modelo antigo de horas (pedidos históricos)
 after(async () => { await h.close(); });
 beforeEach(async () => {
   await h.q('delete from public.hotspot_orders');

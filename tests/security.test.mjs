@@ -6,7 +6,7 @@ import { createHarness, req, read, FN_BASE, MAC_A, MAC_B } from './helpers/harne
 import { RouterSim } from './helpers/router-sim.mjs';
 
 let h; let router;
-before(async () => { h = await createHarness(); });
+before(async () => { h = await createHarness(); await h.useLegacyPlan(); }); // modelo antigo de horas (pedidos históricos)
 after(async () => { await h.close(); });
 beforeEach(async () => {
   await h.q('delete from public.hotspot_orders');
@@ -82,9 +82,9 @@ test('lista vazia ou inválida não liga o bloqueio; entradas inválidas são ig
   assert.equal(r.accepted, 1);
   assert.equal((await h.rpc('hotspot_router_report_hosts', { p_macs: 'aa-bb-cc-dd-ee-02;' })).accepted, 1, 'formato com hífens (enviado pelo RouterOS)');
   assert.equal(await h.rpc('hotspot_device_gate', { p_mac: MAC_B }), 'ok');
-  assert.equal((await h.rpc('hotspot_router_report_hosts', { p_macs: 'x'.repeat(2001) })).accepted, 0);
-  const many = Array.from({ length: 150 }, (_, i) => randomMac(i)).join(';');
-  assert.ok((await h.rpc('hotspot_router_report_hosts', { p_macs: many.slice(0, 2000) })).accepted <= 100);
+  assert.equal((await h.rpc('hotspot_router_report_hosts', { p_macs: 'x'.repeat(4001) })).accepted, 0);
+  const many = Array.from({ length: 300 }, (_, i) => randomMac(i)).join(';');
+  assert.ok((await h.rpc('hotspot_router_report_hosts', { p_macs: many.slice(0, 4000) })).accepted <= 150);
 });
 
 test('a lista só é aceita com a chave do roteador', async () => {

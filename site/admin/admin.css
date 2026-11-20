@@ -132,3 +132,12 @@ tr.click{cursor:pointer}
   .share{justify-content:flex-start}
 }
 @media (min-width:1200px){.stats{grid-template-columns:repeat(6,1fr)}.stat-value{font-size:24px}}
+
+/* Ao vivo */
+.live-status{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px;font-size:13px}
+.live-msg{margin:0 0 10px;font-weight:700;font-size:14px}.live-msg:empty{display:none}
+.live-msg.ok{color:var(--green)}.live-msg.error{color:var(--red)}
+.row-actions{display:flex;flex-wrap:wrap;gap:6px}
+.btn.danger{color:var(--red);border-color:#f0bcbc}
+.small{font-size:12px}
+.live .stats{margin-bottom:14px}

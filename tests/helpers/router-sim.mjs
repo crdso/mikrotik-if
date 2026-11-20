@@ -28,7 +28,33 @@ export class RouterSim {
     this.sessions = new Set(); // aparelhos com sessão autenticada no Hotspot agora (somem no reboot)
     this.telPosts = [];        // blocos de telemetria enviados (para os testes)
     this.flags = new Set();   // arquivos hsx-<MAC>.txt na pasta do Hotspot (sobrevivem ao reboot, como arquivos)
+    // Modelo do Hotspot para o acesso de viagem: /ip hotspot host (presença) e o comportamento REAL que causou a falha:
+    // o login por MAC só é tentado quando o host APARECE. Criar o usuário depois NÃO autentica sozinho.
+    this.hostTable = new Map(); // MAC -> { ip }  (autenticado = this.sessions.has(MAC))
+    this.loginCmdWorks = true;  // "/ip hotspot active login" aceito pelo RouterOS? (false = cai no plano B: remover o host)
+    this.healDone = new Set(); this.healMax = 3;
+    this.cmdAcks = [];          // {id, kind, mac, r, status}
+    this.dropCmdAcks = 0;
+    this.removedHosts = [];     // auditoria: hosts removidos pelo plano B
   }
+  // Aparelho conecta ao Wi-Fi: entra em Hosts e o Hotspot tenta o login por MAC UMA vez.
+  connect(mac, ip = `192.168.88.${100 + this.hostTable.size}`) {
+    this.hostTable.set(mac, { ip });
+    if (this.macLoginAllowed(mac)) this.sessions.add(mac);
+  }
+  disconnect(mac) { this.hostTable.delete(mac); this.sessions.delete(mac); }
+  macLoginAllowed(mac) {
+    const u = this.users.get(mac);
+    return Boolean(u) && !u.disabled && (u.limit === 0 || u.uptime < u.limit);
+  }
+  heal(mac) {
+    if (this.sessions.has(mac)) return 'auth';
+    if (!this.hostTable.has(mac)) return 'nohost';
+    if (this.loginCmdWorks) { if (this.macLoginAllowed(mac)) this.sessions.add(mac); }
+    else { const ip = this.hostTable.get(mac).ip; this.removedHosts.push(mac); this.disconnect(mac); this.connect(mac, ip); } // o aparelho manda o próximo pacote
+    return this.sessions.has(mac) ? 'auth' : 'login';
+  }
+  canBrowseNow(mac) { return this.hostTable.has(mac) && this.sessions.has(mac) && this.macLoginAllowed(mac); }
   reboot() { this.sessions.clear(); this.busy = false; this.failedPolls = 0; this.acks = []; this.expSent = ''; } // usuários e uptime persistem
 
   // Mesma lógica de fatiamento por posição do script.
@@ -49,16 +75,21 @@ export class RouterSim {
     try {
       if (!this.online) { this.failedPolls++; return { ok: false }; }
       // Espelha o X-Hosts do script: só envia a lista quando o teste a define (this.hosts = Set de MACs presentes).
-      const r = await this.h.routerPull(undefined, 'text', this.hosts ? [...this.hosts].map((m) => m + ';').join('') : null);
+      const hostsHdr = this.hostTable.size
+        ? [...this.hostTable].map(([m, x]) => `${m.replaceAll(':', '-')}|${x.ip}|${this.sessions.has(m) ? 'a' : 'n'};`).join('')
+        : (this.hosts ? [...this.hosts].map((m) => m + ';').join('') : null);
+      const r = await this.h.routerPull(undefined, 'text', hostsHdr);
       if (r.status !== 200) { this.failedPolls++; return { ok: false, status: r.status }; }
       this.failedPolls = 0;
       for (const line of r.text.split('\n')) {
+        if (line.startsWith('C ')) { await this.applyCommand(line); continue; }
         if (!line.startsWith('G ')) continue;
         const o = RouterSim.parseLine(line);
         if (!o) { this.ignoredLines++; continue; }
         const tag = 'o:' + o.oid.slice(0, 8);
         const u = this.users.get(o.mac);
-        if (!u) {
+        if (u && u.comment.includes('v:')) { // usuário de viagem: pedido antigo de horas não limita nem reativa
+        } else if (!u) {
           this.users.set(o.mac, { limit: o.dur, uptime: 0, comment: tag });
         } else if (!u.comment.includes(tag)) {
           let newc = u.comment + ',' + tag;
@@ -69,10 +100,57 @@ export class RouterSim {
         if (this.dropAcks > 0) { this.dropAcks--; continue; }
         this.acks.push((await this.h.routerAckForm(o.oid, o.mac)).status);
       }
+      this.healScan();
       await this.reportExhausted();
       return { ok: true };
     } finally { this.busy = false; }
   }
+
+  // Espelha o bloco de comandos "C <id> <tipo> <MAC>" do script (mesmas posições).
+  static parseCmd(line) {
+    if (line.length !== 58 || line.slice(0, 2) !== 'C ') return null;
+    const id = line.slice(2, 38), k = line[39], mac = line.slice(41, 58);
+    if (line[38] !== ' ' || line[40] !== ' ') return null;
+    if (![2, 5, 8, 11, 14].every((p) => mac[p] === ':')) return null;
+    if (![8, 13, 18, 23].every((p) => id[p] === '-')) return null;
+    if (!['G', 'R', 'K', 'A'].includes(k)) return null;
+    return { id, k, mac };
+  }
+  async applyCommand(line) {
+    const c = RouterSim.parseCmd(line);
+    if (!c) { this.ignoredLines++; return; }
+    let res = 'err';
+    if (c.k === 'G') {
+      const u = this.users.get(c.mac);
+      if (!u) this.users.set(c.mac, { limit: 0, uptime: 0, comment: 'v:viagem', disabled: false });
+      else Object.assign(u, { limit: 0, comment: 'v:viagem', disabled: false });
+      this.flags.delete(c.mac); this.healDone.add(c.mac);
+      res = this.heal(c.mac); if (res === 'err') res = 'ok';
+    } else if (c.k === 'A') {
+      const u = this.users.get(c.mac);
+      if (u && !u.disabled) { this.healDone.add(c.mac); res = this.heal(c.mac); }
+    } else if (c.k === 'R') {
+      const u = this.users.get(c.mac); if (u) u.disabled = true;
+      this.sessions.delete(c.mac); res = 'ok';
+    } else if (c.k === 'K') {
+      this.sessions.delete(c.mac); res = 'ok';
+    }
+    if (this.dropCmdAcks > 0) { this.dropCmdAcks--; return; }
+    const a = await this.h.routerCmdAck(c.id, c.mac, res);
+    this.cmdAcks.push({ id: c.id, kind: c.k, mac: c.mac, r: res, status: a.status });
+  }
+  // Espelha a reautenticação automática: hosts não autenticados com usuário ativo do Wifi a Bordo.
+  healScan() {
+    let n = 0;
+    for (const mac of this.hostTable.keys()) {
+      if (n >= this.healMax || this.sessions.has(mac) || this.healDone.has(mac)) continue;
+      const u = this.users.get(mac);
+      if (!u || u.disabled || !/[ov]:/.test(u.comment)) continue;
+      if (!(u.limit === 0 || u.uptime < u.limit)) continue;
+      this.healDone.add(mac); n++; this.heal(mac);
+    }
+  }
+  healWindow() { this.healDone.clear(); } // passou healEvery (3 min)
 
   // Espelha o bloco "credito ESGOTADO" do script: avisa quem atingiu o limite, uma vez por esgotamento.
   async reportExhausted() {
@@ -98,7 +176,7 @@ export class RouterSim {
     const fmt = (t) => `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
     const entries = []; let i = 0;
     for (const [name, u] of this.users) {
-      if (!u.comment.includes('o:') || name.length !== 17) continue;
+      if (!/[ov]:/.test(u.comment) || name.length !== 17) continue;
       const act = this.sessions.has(name);
       entries.push(`${name}_${act ? ipOf(i) : ''}_${fmt(u.uptime)}_${fmt(u.limit)}_${act ? 1 : 0}`); i++;
     }

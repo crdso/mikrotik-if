@@ -136,7 +136,7 @@ async function loadHandlers() {
       return {
         createPayment: await imp('create-payment'), webhook: await imp('mp-webhook'),
         paymentStatus: await imp('payment-status'), routerSync: await imp('router-sync'),
-        plans: await imp('plans'), adminApi: await imp('admin-api'), common,
+        plans: await imp('plans'), passenger: await imp('passenger'), adminApi: await imp('admin-api'), common,
       };
     })();
   }
@@ -225,7 +225,7 @@ export async function createHarness() {
 
     // Atalhos de fluxo -------------------------------------------------------
     async createPix(mac = MAC_A, email = 'passageiro@example.com', extra = {}) {
-      const res = await read(await handlers.createPayment(req(`${FN_BASE}/create-payment`, { method: 'POST', body: { mac, email, ...extra } })));
+      const res = await read(await handlers.createPayment(req(`${FN_BASE}/create-payment`, { method: 'POST', body: { mac, name: 'Passageiro de Teste', email, ...extra } })));
       return res;
     },
     async status(order) {
@@ -262,8 +262,22 @@ export async function createHarness() {
         method: 'POST', origin: null, body: `online=${online}&tel=${entries}`,
         headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
     },
+    async routerCmdAck(id, mac, r, key = ENV.ROUTER_SHARED_KEY) {
+      return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, {
+        method: 'POST', origin: null, body: `cmd=${id}&mac=${mac}&r=${r}`,
+        headers: { 'x-router-key': key, 'content-type': 'application/x-www-form-urlencoded' } })));
+    },
     async routerAck(order_id, mac, key = ENV.ROUTER_SHARED_KEY) {
       return read(await handlers.routerSync(req(`${FN_BASE}/router-sync`, { method: 'POST', headers: { 'x-router-key': key }, body: { order_id, mac }, origin: null })));
+    },
+    // Testes do modelo ANTIGO de horas (pedidos históricos): reativa o plano "5 horas" como único plano ativo.
+    async useLegacyPlan() {
+      await h.q("update public.hotspot_plans set is_default = false, highlight = false, active = false");
+      await h.q("update public.hotspot_plans set active = true, is_default = true where not unlimited and price_cents = 500 and grant_seconds = 18000");
+    },
+    async useTripPlan() {
+      await h.q("update public.hotspot_plans set is_default = false, highlight = false, active = false");
+      await h.q("update public.hotspot_plans set active = true, is_default = true where unlimited");
     },
     // Pix criado + pago pelo Mercado Pago + webhook entregue.
     async payOrder(mac = MAC_A) {

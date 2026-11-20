@@ -121,6 +121,30 @@ export function validEmail(email) {
   return typeof email === 'string' && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// Nome completo autodeclarado: espaços normalizados; 2 palavras ou mais; só letras (com acentos), apóstrofo, ponto e hífen.
+export function cleanName(value) {
+  return String(value ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+}
+export function validName(name) {
+  if (typeof name !== 'string' || name.length < 5 || name.length > 80) return false;
+  if (!/^\p{L}[\p{L}\p{M}'’.\- ]*$/u.test(name)) return false;
+  const words = name.split(' ');
+  return words.length >= 2 && words[0].length >= 2 && words[words.length - 1].length >= 2;
+}
+
+// Resultado da função SQL de cadastro -> [status HTTP, mensagem para o passageiro, tentar de novo?]. Nunca devolve dados pessoais.
+export function registrationError(action, serviceName) {
+  switch (action) {
+    case 'unknown_device':
+      return [403, 'Não reconhecemos este aparelho na rede ' + serviceName + '. Conecte-se à rede, aguarde alguns segundos e abra o portal pela tela de login.', true];
+    case 'invalid_mac': return [400, 'Dispositivo inválido.', false];
+    case 'invalid_name': return [400, 'Informe seu nome completo (nome e sobrenome).', false];
+    case 'invalid_email': return [400, 'Informe um e-mail válido.', false];
+    case 'rate_limited': return [429, 'Muitas tentativas. Aguarde alguns minutos.', false];
+    default: return null;
+  }
+}
+
 // Comparação em tempo constante (compara SHA-256 dos dois valores).
 export async function safeEqual(a, b) {
   const enc = new TextEncoder();

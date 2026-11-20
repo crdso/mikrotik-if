@@ -5,17 +5,25 @@
 //   GET  ?fmt=json      -> o mesmo em JSON (RouterOS 7, testes)
 //   POST                -> ACK idempotente (corpo JSON ou order=<uuid>&mac=<MAC>)
 //   POST expired=MAC,MAC -> aviso de crédito esgotado (até 20 MACs; idempotente)
+//   POST cmd=<uuid>&mac=<MAC>&r=<ok|auth|login|nohost|err> -> resultado de um comando (idempotente)
 // Autenticação: cabeçalho X-Router-Key == ROUTER_SHARED_KEY (ou ROUTER_SHARED_KEY_NEXT).
 //
 // Formato de texto (largura fixa, no máximo MAX_PER_POLL linhas, resposta < 1 KB):
 //   OK
 //   G AA:BB:CC:DD:EE:FF 123e4567-e89b-12d3-a456-426614174000 5h0m0s
 //   ^  ^MAC(17)          ^id do pedido(36)                      ^tempo a creditar
+//   C 123e4567-e89b-12d3-a456-426614174000 G AA:BB:CC:DD:EE:FF      (58 caracteres, largura fixa)
+//     ^id do comando(36)                   ^tipo: G=liberar sem limite, R=revogar/bloquear, K=derrubar sessão,
+//                                            A=reautenticar (recuperação)
+// Os tipos são uma lista fechada; o roteador valida cada campo e nunca executa texto vindo da rede.
 import {
   HttpError, isUuid, json, normalizeMac, parseRosDuration, readBody, rosTime, routerAuthorized, rpc,
 } from '../_shared/common.ts';
 
-const MAX_PER_POLL = 10; // respostas pequenas para o hardware antigo (64 MB de RAM)
+const MAX_PER_POLL = 10;
+const MAX_CMDS = 10;
+const KIND = { grant: 'G', revoke: 'R', kick: 'K', reauth: 'A' };
+const RESULTS = new Set(['ok', 'auth', 'login', 'nohost', 'err']); // respostas pequenas para o hardware antigo (64 MB de RAM)
 const text = (body, status = 200) => new Response(body, {
   status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
 });
@@ -30,15 +38,18 @@ export async function handler(req) {
       // Aparelhos presentes no Hotspot (/ip hotspot host), "MAC;MAC;..." no cabeçalho X-Hosts. Só quem o roteador
       // vê pode gerar Pix (impede MACs inventados pela internet). Falha aqui nunca atrapalha a entrega de créditos.
       const hosts = (req.headers.get('x-hosts') || '').trim();
-      if (hosts && hosts.length <= 2000) {
+      if (hosts && hosts.length <= 4000) { // "MAC|IP|a;..." até 150 aparelhos
         await rpc('hotspot_router_report_hosts', { p_macs: hosts }).catch((e) => console.error('router-sync hosts', String(e)));
       }
       // Limpeza diária de pedidos inúteis (a função decide se já rodou hoje; falha nunca atrapalha a entrega).
       await rpc('hotspot_maintenance', {}).catch((e) => console.error('router-sync maintenance', String(e)));
       const r = await rpc('hotspot_router_pull', { p_limit: MAX_PER_POLL });
       const orders = r?.orders ?? [];
-      if (url.searchParams.get('fmt') === 'json') return json({ orders });
-      const lines = ['OK', ...orders.map((o) => `G ${o.mac} ${o.id} ${rosTime(o.grant_seconds)}`)];
+      const c = await rpc('hotspot_router_commands_pull', { p_limit: MAX_CMDS });
+      const commands = (c?.commands ?? []).filter((x) => KIND[x.kind] && normalizeMac(x.mac) && isUuid(x.id));
+      if (url.searchParams.get('fmt') === 'json') return json({ orders, commands });
+      const lines = ['OK', ...orders.map((o) => `G ${o.mac} ${o.id} ${rosTime(o.grant_seconds)}`),
+        ...commands.map((x) => `C ${x.id} ${KIND[x.kind]} ${normalizeMac(x.mac)}`)];
       return text(lines.join('\n') + '\n');
     }
     if (req.method === 'POST') {
@@ -70,6 +81,16 @@ export async function handler(req) {
         const online = /^\d{1,4}$/.test(String(data.online ?? '')) ? Number(data.online) : null;
         const r = await rpc('hotspot_router_report_state', { p_online: online, p_rows: rows });
         return json({ ok: true, accepted: r?.accepted ?? 0 });
+      }
+      // Resultado de um comando (G/R/K/A).
+      if (data?.cmd !== undefined) {
+        const cid = String(data.cmd);
+        const cmac = normalizeMac(data?.mac);
+        const res = String(data?.r ?? '');
+        if (!isUuid(cid) || !cmac || !RESULTS.has(res)) return json({ error: 'Invalid command ack' }, 400);
+        const r = await rpc('hotspot_router_command_ack', { p_id: cid, p_mac: cmac, p_result: res });
+        if (!r?.ok) return json({ error: 'Command not found' }, 409);
+        return json({ ok: true, already: Boolean(r.already) });
       }
       const id = String(data?.order_id ?? data?.order ?? '');
       const mac = normalizeMac(data?.mac);

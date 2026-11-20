@@ -25,6 +25,8 @@ O código foi revisado em auditoria e **testado em simulação** (banco Postgres
 
 ## O que é
 
+> **Modelo atual:** acesso **ilimitado durante a viagem** — liberação manual pelo organizador para quem já pagou, ou **Pix de R$ 25,00** — com painel ao vivo. Veja [docs/viagem.md](docs/viagem.md). O texto abaixo descreve a base técnica e o modelo antigo de horas (ainda válido para pedidos anteriores).
+
 Um sistema genérico para vender acesso Wi-Fi por **Pix** em qualquer rede com **Hotspot MikroTik**. O passageiro conecta ao Wi-Fi aberto, paga **R$ 5,00** e recebe **5 horas de uso acumulado**, liberadas automaticamente pelo MAC do aparelho. Ao fim do tempo, o Hotspot corta e ele pode comprar de novo (o tempo restante nunca é perdido nem duplicado).
 
 ## ✨ Funcionalidades
@@ -205,6 +207,7 @@ Os testes são **simulados** (Mercado Pago e MikroTik) e o banco é real em mem�
 
 | Documento | Conteúdo |
 |---|---|
+| [docs/viagem.md](docs/viagem.md) | **Modelo atual da viagem**: liberação manual dos pré-pagos, Pix R$ 25 sem limite de horas, painel ao vivo, ações e a correção da autenticação por MAC |
 | [docs/instalacao.md](docs/instalacao.md) | **Ordem de implantação** e testes finais |
 | [docs/arquitetura.md](docs/arquitetura.md) | Componentes, fluxo, estados, camadas de segurança |
 | [docs/mikrotik.md](docs/mikrotik.md) | RouterOS 6.48/7: diagnóstico, CA, Hotspot, Walled Garden, script, reversão |

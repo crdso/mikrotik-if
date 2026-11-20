@@ -1,5 +1,5 @@
 # =============================================================================
-# wifi-poll — credita no Hotspot os pagamentos Pix aprovados.
+# wifi-poll — aplica no Hotspot as liberacoes do Wifi a Bordo (Pix aprovado ou liberacao do administrador).
 # Escrito para RouterOS 6.43+ (hEX lite com 6.48.x); também roda no RouterOS 7.
 # Não usa JSON, :onerror, :serialize nem :deserialize (só existem a partir do 7.13).
 #
@@ -13,7 +13,20 @@
 # Protocolo (texto simples, até 10 linhas por consulta):
 #   OK
 #   G AA:BB:CC:DD:EE:FF 123e4567-e89b-12d3-a456-426614174000 5h0m0s
-# Cada linha "G" = um pedido PAGO: MAC, id do pedido, tempo a creditar.
+# Cada linha "G" = um pedido PAGO do modelo ANTIGO de horas: MAC, id do pedido, tempo a creditar.
+#   C 123e4567-e89b-12d3-a456-426614174000 G AA:BB:CC:DD:EE:FF
+# Cada linha "C" = um COMANDO (modelo novo, acesso durante toda a viagem, sem limite de tempo):
+#   G = liberar (cria/reativa o usuario com limit-uptime=0, isto e, SEM limite) e tenta autenticar ja
+#   R = revogar/bloquear (desativa o usuario e derruba a sessao; o backend nunca reenvia G enquanto revogado/bloqueado)
+#   K = derrubar a sessao agora (temporario: com direito valido, o login por MAC volta)
+#   A = reautenticar (recuperacao de aparelho preso em Hosts)
+# Resultado volta por POST cmd=<id>&mac=<MAC>&r=<ok|auth|login|nohost|err>.
+#
+# Por que reautenticar: o Hotspot tenta o login por MAC quando o aparelho APARECE em /ip hotspot host. Se o
+# usuario e criado DEPOIS (Pix aprovado com o celular ja conectado), nada dispara nova tentativa e o aparelho fica
+# em Hosts sem entrar em Active. O script pede o login ("/ip hotspot active login") so para esse MAC e, se o
+# RouterOS recusar o comando, remove SO a entrada daquele MAC em Hosts (ela volta sozinha no proximo pacote e o
+# login por MAC e tentado de novo). Nunca mexe em quem ja esta em Active, em usuarios desativados ou em outros MACs.
 #
 # Segurança e idempotência:
 #   * só HTTPS com certificado validado (a CA precisa estar importada; veja o guia);
@@ -35,6 +48,10 @@
 :if ([:typeof $wifiExpSent] = "nothing") do={ :set wifiExpSent "" }
 :global wifiTelLast
 :if ([:typeof $wifiTelLast] = "nothing") do={ :set wifiTelLast 0s }
+:global wifiHealDone
+:if ([:typeof $wifiHealDone] = "nothing") do={ :set wifiHealDone "" }
+:global wifiHealAt
+:if ([:typeof $wifiHealAt] = "nothing") do={ :set wifiHealAt 0s }
 
 :local api "https://SEU-PROJETO.supabase.co/functions/v1/router-sync"
 :local secret "COLOQUE_A_MESMA_ROUTER_SHARED_KEY"
@@ -48,6 +65,26 @@
 # Servidor Hotspot (o gerador troca pelo seu). A pasta HTML (ex.: flash/hotspot) e LIDA deste perfil a cada
 # execucao (html-directory); e la que ficam os avisos "hsx-<MAC>.txt".
 :local hprof "hsprof1"
+# Reautenticacao automatica: no maximo healMax aparelhos por execucao; cada MAC no maximo 1 vez a cada healEvery.
+:local healMax 3
+:local healEvery 3m
+
+# Pede o login por MAC de UM aparelho que tem usuario valido mas nao esta em Active.
+# Retorna: auth (ja autenticado) | login (login pedido) | nohost (fora da rede agora) | err
+:local heal do={
+    :if ([:len [/ip hotspot active find where mac-address=$m]] > 0) do={ :return "auth" }
+    :local hh [/ip hotspot host find where mac-address=$m]
+    :if ([:len $hh] = 0) do={ :return "nohost" }
+    :local hip [/ip hotspot host get ($hh->0) address]
+    :local r "login"
+    :do {
+        /ip hotspot active login user=$m password="" mac-address=$m ip=$hip
+    } on-error={
+        :do { /ip hotspot host remove ($hh->0) } on-error={ :set r "err" }
+    }
+    :if ([:len [/ip hotspot active find where mac-address=$m]] > 0) do={ :set r "auth" }
+    :return $r
+}
 
 # Evita duas execuções ao mesmo tempo; uma trava "velha" (3 min) é ignorada.
 :local run true
@@ -71,16 +108,21 @@
     :local ok false
     :local resp ""
     :do {
-        # Aparelhos presentes no Hotspot (ate 60), "AA-BB-CC-DD-EE-FF;..." no cabecalho X-Hosts: o servidor so aceita
-        # gerar Pix para quem o roteador ve (impede MACs inventados pela internet). Falha aqui envia sem a lista.
+        # Aparelhos presentes no Hotspot (ate 80), "AA-BB-CC-DD-EE-FF|IP|a;..." no cabecalho X-Hosts ("a" = autenticado,
+        # "n" = nao). O servidor so aceita cadastro/Pix de quem o roteador ve e o painel mostra quem esta navegando.
+        # Falha aqui envia sem a lista.
         :local hosts ""
         :local hc 0
         :do {
             :foreach hh in=[/ip hotspot host find] do={
-                :if ($hc < 60) do={
+                :if ($hc < 80) do={
                     :local hm [:tostr [/ip hotspot host get $hh mac-address]]
                     :if ([:len $hm] = 17) do={
-                        :set hosts ($hosts . [:pick $hm 0 2] . "-" . [:pick $hm 3 5] . "-" . [:pick $hm 6 8] . "-" . [:pick $hm 9 11] . "-" . [:pick $hm 12 14] . "-" . [:pick $hm 15 17] . ";")
+                        :local hip ""
+                        :do { :set hip [:tostr [/ip hotspot host get $hh address]] } on-error={ :set hip "" }
+                        :local ha "n"
+                        :do { :if ([/ip hotspot host get $hh authorized] = true) do={ :set ha "a" } } on-error={ :set ha "n" }
+                        :set hosts ($hosts . [:pick $hm 0 2] . "-" . [:pick $hm 3 5] . "-" . [:pick $hm 6 8] . "-" . [:pick $hm 9 11] . "-" . [:pick $hm 12 14] . "-" . [:pick $hm 15 17] . "|" . $hip . "|" . $ha . ";")
                         :set hc ($hc + 1)
                     }
                 }
@@ -103,6 +145,57 @@
             :local line [:pick $resp $pos $nl]
             :set pos ($nl + 1)
 
+            # ---- comando "C <id> <tipo> <MAC>" (58 caracteres) ----
+            :if (([:len $line] = 58) && ([:pick $line 0 2] = "C ")) do={
+                :local cid [:pick $line 2 38]
+                :local k [:pick $line 39 40]
+                :local mac [:pick $line 41 58]
+                :local valid true
+                :if (([:pick $line 38 39] != " ") || ([:pick $line 40 41] != " ")) do={ :set valid false }
+                :foreach p in={2;5;8;11;14} do={ :if ([:pick $mac $p ($p + 1)] != ":") do={ :set valid false } }
+                :foreach p in={8;13;18;23} do={ :if ([:pick $cid $p ($p + 1)] != "-") do={ :set valid false } }
+                :if (($k != "G") && ($k != "R") && ($k != "K") && ($k != "A")) do={ :set valid false }
+                :if ($valid) do={
+                    :local res "err"
+                    :do {
+                        :if ($k = "G") do={
+                            :local u [/ip hotspot user find where name=$mac]
+                            :if ([:len $u] = 0) do={
+                                /ip hotspot user add name=$mac password="" mac-address=$mac profile=$profile limit-uptime=0s comment="v:viagem"
+                            } else={
+                                /ip hotspot user set $u disabled=no mac-address=$mac profile=$profile limit-uptime=0s comment="v:viagem"
+                            }
+                            :do { /file remove [/file find where name=($hdir . "/hsx-" . [:pick $mac 0 2] . "-" . [:pick $mac 3 5] . "-" . [:pick $mac 6 8] . "-" . [:pick $mac 9 11] . "-" . [:pick $mac 12 14] . "-" . [:pick $mac 15 17] . ".txt")] } on-error={ }
+                            :set wifiHealDone ($wifiHealDone . $mac . ",")
+                            :set res [$heal m=$mac]
+                            :if ($res = "err") do={ :set res "ok" }
+                        }
+                        :if ($k = "A") do={
+                            :local u [/ip hotspot user find where name=$mac disabled=no]
+                            :if ([:len $u] > 0) do={
+                                :set wifiHealDone ($wifiHealDone . $mac . ",")
+                                :set res [$heal m=$mac]
+                            } else={ :set res "err" }
+                        }
+                        :if ($k = "R") do={
+                            :local u [/ip hotspot user find where name=$mac]
+                            :if ([:len $u] > 0) do={ /ip hotspot user set $u disabled=yes }
+                            :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
+                            :foreach c in=[/ip hotspot cookie find where mac-address=$mac] do={ /ip hotspot cookie remove $c }
+                            :set res "ok"
+                        }
+                        :if ($k = "K") do={
+                            :foreach a in=[/ip hotspot active find where mac-address=$mac] do={ /ip hotspot active remove $a }
+                            :set res "ok"
+                        }
+                    } on-error={ :set res "err" }
+                    :log info ("wifi-poll: comando " . $k . " " . $res)
+                    :do {
+                        /tool fetch url=$api mode=https http-method=post http-data=("cmd=" . $cid . "&mac=" . $mac . "&r=" . $res) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
+                    } on-error={ :log warning "wifi-poll: falha ao confirmar comando" }
+                } else={ :log warning "wifi-poll: comando invalido ignorado" }
+            }
+
             :if (([:len $line] >= 62) && ([:len $line] <= 90) && ([:pick $line 0 2] = "G ")) do={
                 :local mac [:pick $line 2 19]
                 :local oid [:pick $line 20 56]
@@ -118,6 +211,12 @@
                     :local tag ("o:" . [:pick $oid 0 8])
                     :do {
                         :local u [/ip hotspot user find where name=$mac]
+                        :local trip false
+                        :if ([:len $u] > 0) do={ :if ([:typeof [:find [/ip hotspot user get $u comment] "v:"]] != "nil") do={ :set trip true } }
+                        :if ($trip) do={
+                            # Usuario de viagem (sem limite): pedido antigo de horas NAO limita nem reativa; so confirma.
+                            :log info ("wifi-poll: pedido antigo ignorado (acesso de viagem) " . $tag)
+                        } else={
                         :if ([:len $u] = 0) do={
                             /ip hotspot user add name=$mac password="" mac-address=$mac profile=$profile limit-uptime=$dur comment=$tag
                             :log info ("wifi-poll: credito novo " . $tag)
@@ -131,6 +230,7 @@
                                 :log info ("wifi-poll: credito somado " . $tag)
                             }
                         }
+                        }
                         # Credito novo/somado: o aviso de "tempo esgotado" deste aparelho deixa de valer.
                         :do { /file remove [/file find where name=($hdir . "/hsx-" . [:pick $mac 0 2] . "-" . [:pick $mac 3 5] . "-" . [:pick $mac 6 8] . "-" . [:pick $mac 9 11] . "-" . [:pick $mac 12 14] . "-" . [:pick $mac 15 17] . ".txt")] } on-error={ }
                         /tool fetch url=$api mode=https http-method=post http-data=("order=" . $oid . "&mac=" . $mac) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
@@ -138,6 +238,29 @@
                 } else={ :log warning "wifi-poll: linha invalida ignorada" }
             }
         }
+
+        # Reautenticacao automatica: aparelho em Hosts, NAO autenticado, com usuario ATIVO do Wifi a Bordo (viagem, ou
+        # horas antigas ainda com saldo). Limitado (healMax por execucao, 1 vez por MAC a cada healEvery): sem loops.
+        :do {
+            :if (($now - $wifiHealAt) >= $healEvery) do={ :set wifiHealAt $now; :set wifiHealDone "" }
+            :local nh 0
+            :foreach hh in=[/ip hotspot host find where authorized=no bypassed=no] do={
+                :if ($nh < $healMax) do={
+                    :local hm [:tostr [/ip hotspot host get $hh mac-address]]
+                    :if (([:len $hm] = 17) && ([:typeof [:find $wifiHealDone $hm]] = "nil")) do={
+                        :local u [/ip hotspot user find where name=$hm disabled=no comment~"[ov]:"]
+                        :if ([:len $u] > 0) do={
+                            :local lim [/ip hotspot user get ($u->0) limit-uptime]
+                            :if (($lim = 0s) || ([/ip hotspot user get ($u->0) uptime] < $lim)) do={
+                                :set wifiHealDone ($wifiHealDone . $hm . ",")
+                                :set nh ($nh + 1)
+                                :log info ("wifi-poll: reautenticacao automatica " . [$heal m=$hm])
+                            }
+                        }
+                    }
+                }
+            }
+        } on-error={ :log warning "wifi-poll: erro na reautenticacao automatica" }
 
         # Aparelhos com credito ESGOTADO (uptime + margem >= limit-uptime): avisa o backend para o portal
         # mostrar "Seu tempo de internet acabou". O bloqueio em si e do Hotspot (nao e alterado aqui).
@@ -197,7 +320,7 @@
                 :local batch ""
                 :local nb 0
                 :local sentAny false
-                :foreach eu in=[/ip hotspot user find where comment~"o:"] do={
+                :foreach eu in=[/ip hotspot user find where comment~"[ov]:"] do={
                     :local nm [/ip hotspot user get $eu name]
                     :if ([:len $nm] = 17) do={
                         :local act [/ip hotspot active find where user=$nm]

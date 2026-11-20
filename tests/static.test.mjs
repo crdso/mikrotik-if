@@ -83,7 +83,7 @@ test('Portal: app.js compila e todos os ids que usa existem no HTML', () => {
   const html = read('site/index.html');
   const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
   const used = new Set([...js.matchAll(/\$\('([^']+)'\)/g)].map((m) => m[1]));
-  for (const p of ['buy', 'pix', 'paid', 'done', 'ended', 'invalid']) used.add(p);
+  for (const p of ['loading', 'reg', 'wait', 'pix', 'paid', 'done', 'ended', 'invalid']) used.add(p);
   for (const id of used) assert.ok(ids.has(id), `id "${id}" usado em app.js não existe em index.html`);
   assert.doesNotMatch(js, /innerHTML|document\.write|eval\(/, 'sem sinks de XSS');
   new vm.Script(read('site/config.js'));
@@ -112,7 +112,14 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   const live = rsc.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n'); // sem comentários, strings intactas
   assert.doesNotMatch(live, /check-certificate=no\b/, 'nunca desligar a validação TLS');
   assert.match(live, /:local tls "(yes-without-crl|yes)"/, 'validação de certificado ligada');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 5, 'GET, ACK, aviso de esgotado e os 2 envios de telemetria usam a validação');
+  // Reautenticação (correção da falha de login por MAC): só usuários ATIVOS, só hosts não autenticados, com limite
+  assert.ok(live.includes(':local u [/ip hotspot user find where name=$hm disabled=no comment~"[ov]:"]'), 'nunca reautentica usuário desativado');
+  assert.ok(live.includes('[/ip hotspot host find where authorized=no bypassed=no]'), 'só hosts não autenticados');
+  assert.match(live, /:local healMax 3\n:local healEvery 3m/);
+  assert.equal((live.match(/\/ip hotspot host remove/g) || []).length, 1, 'remoção de host só no plano B, para um MAC');
+  assert.doesNotMatch(live, /\/ip hotspot user remove|\/ip hotspot host remove \[find\]/, 'nunca apaga usuários nem todos os hosts');
+  assert.match(live, /limit-uptime=0s comment="v:viagem"/, 'acesso de viagem sem limite de tempo');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 6, 'GET, ACK, ACK de comando, aviso de esgotado e os 2 envios de telemetria usam a validação');
   assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);
@@ -158,7 +165,7 @@ test('Documentação: nome da rede e valores consistentes; sem segredos reais no
   }
   assert.match(read('.env.example'), /^MP_ACCESS_TOKEN=SEU_TOKEN/m);
   assert.match(read('.gitignore'), /^\.env$/m); assert.match(read('.gitignore'), /^node_modules\/$/m);
-  assert.match(read('site/index.html'), /R\$ 5,00/); assert.match(read('site/index.html'), /5 horas/);
+  assert.match(read('site/index.html'), /R\$ 25,00/); assert.match(read('site/index.html'), /toda a viagem/);
   assert.ok(existsSync(path.join(ROOT, 'scripts/prepare-site.mjs')));
 });
 
@@ -181,7 +188,8 @@ test('Repositório público: sem termos locais, e-mails reais, caminhos pessoais
     })(ROOT);
   }
   const self = path.join(ROOT, 'tests', 'static.test.mjs');
-  const banned = /escola|viagem|\baluno/i;
+  // "viagem" é o nome público do produto ("Internet para toda a viagem"); a sigla da instituição é montada em partes
+  const banned = new RegExp(['escola', '\\baluno', '\\b' + ['IF', 'TO'].join('') + '\\b'].join('|'), 'i');
   const email = /[A-Za-z0-9._%+-]+@(?!example\.|b\.co|email\.com|placeholder)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
   const personalPath = /[A-Za-z]:\Users\|\/Users\/[a-z]|\/home\/[a-z]/i;
   for (const f of all) {
@@ -237,27 +245,29 @@ test('Netlify: netlify.toml correto, build por variável pública e nenhuma chav
   } finally { rmSync(out, { recursive: true, force: true }); }
 });
 
-test('Portal Wifi a Bordo: textos exigidos, sem rodapé de suporte, ícones e ilustração leves e dentro da CSP', () => {
+test('Portal Wifi a Bordo: fluxo da viagem (cadastro -> Aguardando liberação + Pix R$ 25 -> liberado), sem horas e sem localStorage', () => {
   const html = read('site/index.html');
-  for (const t of ['Wifi a Bordo', 'Internet no ônibus', 'Acesse a internet', 'Pague via Pix e navegue por 5 horas', 'R$ 5,00', '5 horas',
-    'Seu e-mail', 'Digite seu e-mail', 'Gerar Pix', 'Internet<br>estável', 'Ativação<br>imediata', '5 horas<br>de acesso',
-    'Após o pagamento, o acesso é liberado automaticamente neste aparelho.']) assert.ok(html.includes(t), `texto ausente: ${t}`);
-  assert.doesNotMatch(html, /Wi-Fi a Bordo|WI-FI A BORDO/i, 'nome antigo do produto visível');
-  assert.doesNotMatch(html, /Suporte|WhatsApp|telefone|procure o respons/i, 'sem seção de suporte');
-  assert.match(html, /<label for="email"/); assert.match(html, /type="email"[^>]*required/);
-  // todas as telas do fluxo existem
-  for (const id of ['buy', 'pix', 'paid', 'done', 'ended', 'expired', 'loading', 'invalid', 'feedback', 'buymore']) assert.match(html, new RegExp(`id="${id}"`));
-  for (const t of ['Seu tempo de internet acabou', 'Suas horas de acesso terminaram. Para continuar navegando, adquira mais 5 horas.', 'R$ 5,00</span><span class="offer-dash"', 'Comprar mais 5 horas']) assert.ok(html.includes(t), `tela de tempo esgotado sem: ${t}`);
+  for (const t of ['Wifi a Bordo', 'Internet no ônibus', 'Identifique-se para continuar', 'Nome completo', 'Seu e-mail', 'Digite seu e-mail',
+    'Aguardando liberação...', 'Se você já pagou R$ 20 ao organizador, aguarde a liberação', 'Pagar R$ 25,00 com Pix', 'R$ 25,00',
+    'Acesso liberado! Aproveite a viagem', 'Acesso ilimitado durante toda a viagem', 'Sem limite<br>de horas',
+    'Endereço Wi-Fi Privado', 'Fixo', 'http://example.com']) assert.ok(html.includes(t), `texto ausente: ${t}`);
+  assert.doesNotMatch(html, /5 horas|R\$ 5,00|Comprar mais|tempo de internet acabou/i, 'oferta antiga de horas não aparece');
+  assert.doesNotMatch(html, /Wi-Fi a Bordo|WI-FI A BORDO/, 'nome antigo do produto visível');
+  assert.doesNotMatch(html, /Suporte|WhatsApp|telefone|procure o respons/i, 'sem seção de suporte nem contatos pessoais');
+  assert.match(html, /<label for="regemail"/); assert.match(html, /type="email"[^>]*required/); assert.match(html, /<label for="fullname"/);
+  for (const id of ['loading', 'reg', 'wait', 'pix', 'paid', 'done', 'ended', 'invalid', 'feedback', 'pay', 'waitstate']) assert.match(html, new RegExp(`id="${id}"`));
   const svg = read('site/art.svg');
   assert.ok(svg.length < 6000, `ilustração com ${svg.length} bytes`);
   assert.doesNotMatch(svg, /<script|<foreignObject|href=|xlink|style=|on[a-z]+=/i, 'SVG sem scripts, links ou estilos inline');
   assert.match(read('site/style.css'), /url\(\/art\.svg\)/);
   assert.doesNotMatch(read('site/style.css'), /@import|url\(\s*['"]?https?:/);
-  assert.match(read('site/app.js'), /const idle = fromExpired \? expiredLabel\(\) : 'Gerar Pix'/, 'botões voltam ao texto original');
-  assert.match(read('site/app.js'), /'Comprar mais ' \+ duration/, 'rótulo "Comprar mais <duração do plano>"');
-  assert.match(read('site/app.js'), /plan_id: currentPlan\(\)\.id/, 'o navegador envia só o identificador do plano');
-  assert.doesNotMatch(read('site/app.js'), /price_cents:|grant_seconds:|amount:/, 'preço e duração nunca são enviados pelo navegador');
-  assert.doesNotMatch(read('site/app.js'), /location\.(href|replace|assign)\s*=|window\.open|document\.cookie/, 'o portal nunca redireciona (sem loop com o Hotspot) nem usa cookies');
+  const js = read('site/app.js');
+  assert.doesNotMatch(js, /localStorage|sessionStorage|document\.cookie/, 'o estado vem do servidor, nunca do navegador');
+  assert.match(js, /api\('passenger\?mac=' \+ encodeURIComponent\(mac\)\)/, 'estado do aparelho consultado no servidor');
+  assert.match(js, /post\('create-payment', \{ mac \}\)/, 'o navegador envia só o aparelho; preço e produto são do servidor');
+  assert.doesNotMatch(js, /price_cents:|grant_seconds:|amount:|plan_id:/, 'preço e duração nunca são enviados pelo navegador');
+  assert.doesNotMatch(js, /location\.(href|replace|assign)\s*=|window\.open/, 'o portal nunca redireciona (sem loop com o Hotspot)');
+  assert.match(js, /s\.access === 'active' && s\.internet\) \{ enterDone\(\)/, '"liberado" só com a sessão autenticada confirmada pelo roteador');
 });
 
 test('prepare-router: gera os arquivos com os valores reais, recusa TLS inseguro e nunca grava a chave', async () => {

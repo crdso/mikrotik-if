@@ -54,7 +54,7 @@ function runLogin(mac, { router, xhr = 'flag', error = '' } = {}) {
 const finalOf = async (mac, opts) => { const r = runLogin(mac, opts); await r.settle(); return r.fireTimeouts(); };
 
 let h; let router;
-before(async () => { h = await createHarness(); });
+before(async () => { h = await createHarness(); await h.useLegacyPlan(); }); // modelo antigo de horas (pedidos históricos)
 after(async () => { await h.close(); });
 beforeEach(async () => {
   await h.q('delete from public.hotspot_orders');
@@ -142,10 +142,9 @@ test('a dica err do Hotspot continua valendo quando existir', async () => {
   assert.equal(url, `${PORTAL}/?mac=${encodeURIComponent(MAC_A)}&err=${encodeURIComponent('your uptime limit is reached')}`);
 });
 
-test('portal: exp=1 vira dica de esgotamento; sem pedido e sem dica a tela é neutra; nada consulta por MAC', () => {
+test('portal: exp=1 (horas antigas esgotadas) só muda o texto da espera; o estado vem do servidor pelo próprio aparelho', () => {
   const js = readFileSync(path.join(ROOT, 'site/app.js'), 'utf8');
   assert.match(js, /params\.get\('exp'\) === '1'/);
-  assert.match(js, /else if \(LIMIT_HINT\) \{ enterExpired\(\); \}/);
-  assert.match(js, /else \{ show\('buy'\); \}/);
-  assert.doesNotMatch(js, /payment-status\?mac/);
+  assert.match(js, /else if \(LIMIT_HINT\) msg = /);
+  assert.doesNotMatch(js, /payment-status\?mac/, 'o pedido só é lido com id + token');
 });

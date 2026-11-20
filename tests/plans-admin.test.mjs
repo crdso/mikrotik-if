@@ -300,7 +300,7 @@ test('plans (público): só GET, só origem do site, nada além do necessário',
   assert.equal((await read(await h.plans(req(`${FN_BASE}/plans`, { origin: 'https://evil.example' })))).status, 403);
   assert.equal((await read(await h.plans(req(`${FN_BASE}/plans`, { method: 'POST', body: {} })))).status, 405);
   const ok = await h.plansList();
-  assert.deepEqual(Object.keys(ok.data.plans[0]).sort(), ['description', 'grant_seconds', 'highlight', 'id', 'is_default', 'name', 'price_cents']);
+  assert.deepEqual(Object.keys(ok.data.plans[0]).sort(), ['description', 'grant_seconds', 'highlight', 'id', 'is_default', 'name', 'price_cents', 'unlimited']);
 });
 
 // ---------------------------------------------------------------------------

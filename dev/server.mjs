@@ -5,6 +5,7 @@
 // Controles de teste (só aqui, nunca em produção):
 //   POST :8788/__dev/pay?mac=AA:BB:..   aprova o Pix mais recente do MAC e entrega o webhook assinado
 //   POST :8788/__dev/router?online=1|0  liga/desliga o roteador simulado (consulta a cada 3 s)
+//   POST :8788/__dev/connect?mac=AA:BB:..  o aparelho conecta ao Wi-Fi (entra em Hosts)
 //   GET  :8788/__dev/state              pedidos e usuários do roteador simulado
 import http from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -93,7 +94,7 @@ http.createServer((req, res) => {
   } catch { res.writeHead(404, common); res.end('not found'); }
 }).listen(SITE_PORT, () => console.log(`Portal  → ${SITE}/?mac=AA:BB:CC:DD:EE:10`));
 
-const functions = { 'create-payment': h.createPayment, 'payment-status': h.paymentStatus, 'mp-webhook': h.webhookHandler, 'router-sync': h.routerSync, plans: h.plans, 'admin-api': h.adminApi };
+const functions = { 'create-payment': h.createPayment, 'payment-status': h.paymentStatus, 'mp-webhook': h.webhookHandler, 'router-sync': h.routerSync, plans: h.plans, passenger: h.passenger, 'admin-api': h.adminApi };
 http.createServer(async (req, res) => {
   const url = new URL(req.url, API);
   try {
@@ -104,6 +105,10 @@ http.createServer(async (req, res) => {
       h.mp.approve(row.payment_id);
       const r = await h.webhook(row.payment_id);
       return sendJson(res, 200, { payment_id: row.payment_id, webhook: r.data });
+    }
+    if (url.pathname === '/__dev/connect') { // simula o aparelho entrando no Wi-Fi (aparece em /ip hotspot host)
+      const m = String(url.searchParams.get('mac') || '').toUpperCase(); router.online = true; router.connect(m); await router.poll();
+      return sendJson(res, 200, { connected: m, browsing: router.canBrowseNow(m) });
     }
     if (url.pathname === '/__dev/router' && req.method === 'POST') {
       router.online = url.searchParams.get('online') === '1';

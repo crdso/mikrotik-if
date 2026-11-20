@@ -1,11 +1,13 @@
 // @ts-nocheck
-// Cria (ou reaproveita) o Pix de um aparelho para o PLANO escolhido. Preço e duração são decididos aqui,
+// Cria (ou reaproveita) o Pix de um aparelho para o PLANO escolhido (hoje: "Internet para toda a viagem", R$ 25,00).
+// Nunca cobra de novo quem já tem acesso ativo (pré-pago liberado pelo admin ou Pix anterior), está bloqueado ou
+// teve o acesso revogado. Pix pendente do mesmo aparelho é REAPROVEITADO (fechar a janela não gera outra cobrança). Preço e duração são decididos aqui,
 // no servidor, a partir do banco (hotspot_plans) e congelados no pedido; o navegador só envia o identificador
 // do plano. O e-mail do passageiro continua obrigatório (exigência do Mercado Pago).
 import {
-  HttpError, MpError, PIX_TTL_MINUTES, SERVICE_NAME, browserAllowed, cors, env, isUuid, json,
+  HttpError, MpError, PIX_TTL_MINUTES, SERVICE_NAME, browserAllowed, cleanName, cors, env, isUuid, json,
   mpCancelPayment, mpCreatePix, mpDate, mpGetPayment, normalizeMac, paymentApplyArgs, preflight, readJson,
-  recordFees, rpc, validEmail,
+  recordFees, registrationError, rpc, validEmail, validName,
 } from '../_shared/common.ts';
 
 function secondsLeft(expiresAt) {
@@ -43,12 +45,22 @@ export async function handler(req) {
   try {
     const input = await readJson(req);
     const mac = normalizeMac(input?.mac);
-    const email = String(input?.email ?? '').trim();
     const planRaw = input?.plan_id == null ? '' : String(input.plan_id).trim();
     if (!mac) return json({ error: 'Dispositivo não identificado. Abra esta página pela tela de login da rede ' + SERVICE_NAME + '.' }, 400, headers);
-    if (!validEmail(email)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
     if (planRaw !== '' && !isUuid(planRaw)) return json({ error: 'Plano inválido.' }, 400, headers);
     const planId = planRaw === '' ? null : planRaw;
+
+    // Nome e e-mail são obrigatórios. Se o pedido traz os dois, o cadastro é gravado/atualizado agora (validado no
+    // servidor); se não traz, vale o cadastro já guardado no servidor para este aparelho (nunca o localStorage).
+    if (input?.name !== undefined || input?.email !== undefined) {
+      const name = cleanName(input?.name);
+      const emailIn = String(input?.email ?? '').trim().toLowerCase();
+      if (!validName(name)) return json({ error: 'Informe seu nome completo (nome e sobrenome).' }, 400, headers);
+      if (!validEmail(emailIn)) return json({ error: 'Informe um e-mail válido.' }, 400, headers);
+      const reg = await rpc('hotspot_register_passenger', { p_mac: mac, p_name: name, p_email: emailIn });
+      const bad = registrationError(reg?.action, SERVICE_NAME);
+      if (bad) return json({ error: bad[1], ...(bad[2] ? { retry: true } : {}) }, bad[0], bad[0] === 429 ? { ...headers, 'Retry-After': '60' } : headers);
+    }
 
     let r = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -59,6 +71,14 @@ export async function handler(req) {
     switch (r?.action) {
       case 'unknown_device':
         return json({ error: 'Não reconhecemos este aparelho na rede ' + SERVICE_NAME + '. Conecte-se à rede, aguarde alguns segundos e abra o portal pela tela de login.', retry: true }, 403, headers);
+      case 'already_active':
+        return json({ error: 'Este aparelho já tem acesso liberado para a viagem. Não é preciso pagar de novo.', already_active: true }, 409, headers);
+      case 'blocked':
+        return json({ error: 'Este aparelho está bloqueado. Procure o responsável pela internet.', blocked: true }, 403, headers);
+      case 'revoked':
+        return json({ error: 'O acesso deste aparelho foi encerrado. Procure o responsável pela internet.', revoked: true }, 403, headers);
+      case 'registration_required':
+        return json({ error: 'Identifique-se (nome completo e e-mail) para continuar.', registration_required: true }, 428, headers);
       case 'invalid_mac':
         return json({ error: 'Dispositivo inválido.' }, 400, headers);
       case 'plan_unavailable':
@@ -83,6 +103,12 @@ export async function handler(req) {
     }
 
     orderId = r.order_id;
+    // E-mail do cadastro do aparelho (obrigatório; enviado ao Mercado Pago como payer.email).
+    const email = String((await rpc('hotspot_passenger_email', { p_mac: mac })) ?? '').trim();
+    if (!validEmail(email)) {
+      await rpc('hotspot_fail_order', { p_order_id: orderId }).catch(() => {});
+      return json({ error: 'Identifique-se (nome completo e e-mail) para continuar.', registration_required: true }, 428, headers);
+    }
     const amountCents = Number(r.amount_cents);
     const expiresAt = new Date(Date.now() + PIX_TTL_MINUTES * 60 * 1000);
     let payment;
