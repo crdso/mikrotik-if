@@ -33,6 +33,7 @@ Um sistema genérico para vender acesso Wi-Fi por **Pix** em qualquer rede com *
 - **Webhook com assinatura**, leitura do **status real** na API e **reconciliação** automática se a notificação não chegar.
 - **Liberação somente após pagamento aprovado**: valor, moeda, meio e vínculo com o pedido são conferidos no banco.
 - **Crédito acumulado:** compras adicionais somam ao tempo restante; um pagamento nunca credita duas vezes (idempotência por pedido, por ACK e por marcador no roteador).
+- **Aviso de tempo esgotado:** quando as horas acabam, o portal mostra "Seu tempo de internet acabou" e oferece "Comprar mais 5 horas" (o roteador informa o esgotamento; o controle de tempo continua sendo só do MikroTik).
 - **Sem usuário e senha:** o MikroTik consulta o backend (HTTPS **de dentro para fora**, funciona atrás de CGNAT, sem abrir portas).
 - **RouterOS 6.43+ e 7** (protocolo de texto simples, sem JSON no roteador).
 - **Independente do Access Point:** o AP só faz a ponte Wi-Fi; nenhuma lógica no AP.

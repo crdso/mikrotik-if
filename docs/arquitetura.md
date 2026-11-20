@@ -45,6 +45,17 @@ MikroTik wifi-poll (HTTPS, de dentro para fora) ────┘ router-sync: lis
 6. O `wifi-poll` lê `router-sync` (`G <MAC> <id> <tempo>`), cria ou **soma** o `limit-uptime` do usuário Hotspot (nome = MAC) e envia o **ACK**. O portal mostra "Internet liberada" após o ACK.
 7. O Hotspot corta no `limit-uptime`; o passageiro pode comprar de novo (o tempo restante é preservado e somado).
 
+## Aviso de tempo esgotado
+
+O **MikroTik é a única fonte de verdade do tempo** (`limit-uptime`): ele conta e bloqueia sozinho, e nada neste sistema altera isso. O backend só *concede* crédito; quem sabe quanto foi *consumido* é o roteador. Por isso:
+
+1. A cada consulta, o `wifi-poll` identifica os usuários com `uptime + 10 s >= limit-uptime` e **avisa o backend uma vez por esgotamento** (`POST expired=MAC,MAC`; a margem cobre o arredondamento do contador).
+2. O backend guarda o estado por aparelho (`none` / `active` / `exhausted`). Uma nova compra liberada **depois** do aviso volta o aparelho a `active`.
+3. O portal consulta o estado **somente com o `id` + `read_token` do pedido que o próprio aparelho guardou** (`payment-status`). Não existe consulta por MAC: não há como enumerar aparelhos de terceiros, nem ver histórico de pagamento.
+4. Com o portal aberto, ele acompanha o crédito (a cada 30 s) e, quando o estado vira `exhausted`, mostra **"Seu tempo de internet acabou"** com o botão **"Comprar mais 5 horas"**, que inicia o mesmo fluxo real de Pix (sem cobrança duplicada: o servidor reaproveita o Pix pendente).
+5. Fora do portal, o bloqueio continua sendo do Hotspot. Ao voltar ao portal cativo, a tela de esgotado aparece se houver evidência confiável: o estado `exhausted` do pedido guardado **ou** a mensagem de limite que o próprio Hotspot informa no login (repassada por `login.html` como `err`, usada só como dica). Aparelho novo ou com crédito ativo nunca vê essa tela.
+6. O portal **nunca redireciona** de volta ao Hotspot (sem loop) e **não promete notificações do sistema operacional**: um site fechado não consegue disparar nenhuma; o aviso aparece quando o portal é aberto ou está aberto.
+
 ## Estados do pedido
 
 `pending → paid → (ACK) provisioned`; também `failed`, `expired`, `refunded`. Um Pix aprovado depois de `failed`/`expired` ainda libera. Estorno antes do ACK nunca chega ao roteador; **estorno depois do ACK não revoga** o acesso já concedido (limitação conhecida).

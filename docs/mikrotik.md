@@ -170,6 +170,12 @@ e restaure `login.html.orig`. **Não** remova o perfil de usuário se ele já ex
 
 Veja também [operacao-e-seguranca.md](operacao-e-seguranca.md) (proteção do painel, isolamento, emergência, reinicialização).
 
+## 12. Aviso de tempo esgotado (o que o roteador faz)
+
+Além de creditar pedidos, o `wifi-poll` informa ao backend os aparelhos cujo crédito esgotou (`uptime + 10 s >= limit-uptime`, só entre usuários criados por ele, marcados com `o:` no comentário). **Não altera nenhum limite nem derruba sessão**: o corte continua sendo do Hotspot. O aviso é enviado uma vez por esgotamento (a lista `wifiExpSent` é uma variável global; some no reinício e é reenviada, e o servidor é idempotente). Erros nesse bloco são registrados e ignorados, sem prender a trava de execução.
+
+O `login.html` repassa ao portal, como dica (`&err=...`), a mensagem de erro do Hotspot quando o login por MAC é recusado. **O texto exato dessa mensagem para "limite de tempo atingido" não foi confirmado no RouterOS 6.48**: o portal só a usa como evidência adicional (quando contém "uptime" ou "limit") e o aviso principal vem do backend. Confira no teste D do roteiro qual `err` o seu Hotspot envia.
+
 ## 11. Gerar os arquivos com os valores da sua instalação
 
 O repositório é genérico (`SEU-SITE`, `SEU-PROJETO`, perfil `wifi-5h`). Para obter os arquivos prontos para o **seu** roteador, sem editar nada à mão e sem versionar valores reais:
