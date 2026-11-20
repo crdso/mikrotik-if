@@ -10,6 +10,8 @@ function publicView(s) {
   return {
     status: s.status,
     internet_ready: Boolean(s.internet_ready),
+    // none | active | exhausted — só do aparelho dono do pedido (id + read_token); null se ainda não liberado
+    device_credit: s.device_credit ?? null,
     seconds_left: s.seconds_left ?? null,
     router_online: Boolean(s.router_online),
   };
