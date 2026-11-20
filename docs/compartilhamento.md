@@ -1,10 +1,10 @@
 # Compartilhamento de internet por notebook (Hotspot Móvel / ICS)
 
-Análise para o ambiente real: hEX lite, RouterOS 6.48.6, Hotspot `hotspot1`, perfil `plano-5h` (1M/4M, `shared-users=1`), cerca de 40 alunos. **Nada aqui é instalado automaticamente.** Não existe proteção 100% garantida contra esse uso.
+Análise para o ambiente real: hEX lite, RouterOS 6.48.6, Hotspot `hotspot1`, perfil `plano-5h` (1M/4M, `shared-users=1`), cerca de 40 usuários. **Nada aqui é instalado automaticamente.** Não existe proteção 100% garantida contra esse uso.
 
 ## O que acontece
 1. O notebook paga e o MikroTik libera o MAC dele (login por MAC).
-2. O aluno liga o Hotspot Móvel do Windows (Internet Connection Sharing, que faz **NAT**).
+2. O passageiro liga o Hotspot Móvel do Windows (Internet Connection Sharing, que faz **NAT**).
 3. Os celulares ligados ao notebook saem para o MikroTik **com o MAC e o IP do notebook**.
 
 ## O que o MikroTik enxerga
@@ -27,7 +27,7 @@ Análise para o ambiente real: hEX lite, RouterOS 6.48.6, Hotspot `hotspot1`, pe
 
 Conclusão prática: **TTL é o único método viável**, funciona contra o uso comum (ICS e a maioria dos celulares), mas é parcial e pode gerar falsos positivos. Não recomendo bloquear de início.
 
-## Desempenho (hEX lite, ~40 alunos)
+## Desempenho (hEX lite, ~40 usuários)
 Regras de mangle apenas contadoras (sem ação) têm custo baixo para o tráfego esperado (limite por usuário de 4M, e o enlace é o Starlink). Um `drop` por TTL no `forward` também é barato, mas deve entrar só depois de medir.
 
 ## Teste controlado e reversível (somente medir, sem bloquear)
