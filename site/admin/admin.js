@@ -240,7 +240,7 @@
   const periodArgs = (st) => (st.preset === 'custom' ? { preset: 'custom', start: st.start, end: st.end } : { preset: st.preset });
 
   // ---- layout --------------------------------------------------------------------------
-  const NAV = [['/admin', 'Ao vivo', 'devices', 'Ao vivo'], ['/admin/resumo', 'Resumo', 'dashboard', 'Resumo'], ['/admin/pagamentos', 'Pagamentos', 'pay', 'Pix'],
+  const NAV = [['/admin', 'Ao vivo', 'devices', 'Ao vivo'], ['/admin/resumo', 'Resumo', 'dashboard', 'Resumo'], ['/admin/monitor', 'Monitor do MikroTik', 'report', 'Roteador'], ['/admin/pagamentos', 'Pagamentos', 'pay', 'Pix'],
     ['/admin/planos', 'Planos', 'plans', 'Planos'], ['/admin/relatorios', 'Relatórios', 'report', 'Relatórios'], ['/admin/config', 'Configurações', 'config', 'Ajustes']];
   function currentPath() { return location.pathname.replace(/\/+$/, '') || '/admin'; }
   function go(path) { history.pushState({}, '', path); route(); }
@@ -754,15 +754,103 @@
     every(load, 4000);
   }
 
+  // ---- Monitor do MikroTik (dados reais enviados pelo wifi-poll; nada é estimado) ---------------------------------------
+  function lineChart(points, series, unit, maxHint) {
+    const W = 640, H = 200, L = 40, R = 10, T = 12, B = 26;
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': series.map((x) => x.label).join(' e ') });
+    const vals = points.flatMap((p) => series.map((x) => p[x.key])).filter((v) => v != null).map(Number);
+    if (!points.length || !vals.length) { svg.append(s('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'axis' }, document.createTextNode('Sem amostras no período'))); return svg; }
+    const max = Math.max(maxHint || 0, ...vals) || 1;
+    const t0 = Date.parse(points[0].at), t1 = Date.parse(points[points.length - 1].at) || t0 + 1;
+    const X = (t) => L + ((Date.parse(t) - t0) / Math.max(1, t1 - t0)) * (W - L - R);
+    const Y = (v) => T + (1 - Number(v) / max) * (H - T - B);
+    for (let i = 0; i <= 4; i++) {
+      const v = (max * i) / 4; const y = Y(v);
+      svg.append(s('line', { x1: L, x2: W - R, y1: y, y2: y, class: 'grid' }), s('text', { x: L - 6, y: y + 4, 'text-anchor': 'end', class: 'axis' }, document.createTextNode((v >= 10 ? Math.round(v) : v.toFixed(1)) + unit)));
+    }
+    svg.append(s('text', { x: L, y: H - 6, class: 'axis' }, document.createTextNode(tmf.format(new Date(t0)).slice(0, 5))),
+      s('text', { x: W - R, y: H - 6, 'text-anchor': 'end', class: 'axis' }, document.createTextNode(tmf.format(new Date(t1)).slice(0, 5))));
+    for (const x of series) {
+      let d = ''; let pen = false;
+      for (const p of points) { if (p[x.key] == null) { pen = false; continue; } d += (pen ? 'L' : 'M') + X(p.at).toFixed(1) + ' ' + Y(p[x.key]).toFixed(1) + ' '; pen = true; }
+      svg.append(s('path', { d, class: 'ln ' + x.cls, fill: 'none' }));
+    }
+    return svg;
+  }
+  const legend = (series) => h('div', { class: 'legend' }, series.map((x) => h('span', { class: 'lg ' + x.cls, text: x.label })));
+  const fmtMbps = (v) => (v == null ? '—' : Number(v) >= 10 ? Math.round(Number(v)) + ' Mbps' : Number(v).toFixed(2).replace('.', ',') + ' Mbps');
+  const mib = (b) => (b == null ? '—' : Math.round(Number(b) / 1048576) + ' MiB');
+  function upFmt(sec) { if (sec == null) return '—'; const d = Math.floor(sec / 86400); const hh = Math.floor((sec % 86400) / 3600); const mm = Math.floor((sec % 3600) / 60); return (d ? d + 'd ' : '') + hh + 'h' + String(mm).padStart(2, '0'); }
+
+  function monitorView(slot) {
+    let busy = false; let minutes = 60;
+    const out = h('div', { class: 'live' });
+    const sel = h('select', { class: 'sel', 'aria-label': 'Período' }, [[60, 'Última hora'], [180, 'Últimas 3 h'], [720, 'Últimas 12 h'], [2880, 'Últimas 48 h']].map(([v, l]) => h('option', { value: String(v), text: l })));
+    sel.addEventListener('change', () => { minutes = Number(sel.value); load(); });
+    const refreshBtn = h('button', { class: 'btn ghost', type: 'button', onclick: () => load() }, icon('refresh'), 'Atualizar');
+    function render(d) {
+      const now = Date.parse(d.now) || Date.now();
+      const m = d.last; const mAge = m ? Math.round((now - Date.parse(m.at)) / 1000) : null;
+      const rAge = d.router_seen_at ? Math.round((now - Date.parse(d.router_seen_at)) / 1000) : null;
+      const stale = Boolean(m) && mAge > 180; const online = rAge != null && rAge < 60;
+      const memPct = m && m.mem_total ? Math.round(((m.mem_total - m.mem_free) * 100) / m.mem_total) : null;
+      const ago2 = (x) => (x == null ? '—' : ago(x));
+      const alerts = [];
+      if (!online) alerts.push(['critical', `MikroTik sem comunicação com o servidor (último contato ${ago2(rAge)}).`]);
+      if (!m) alerts.push(['warning', 'Métricas do equipamento aguardando atualização do script RouterOS. Sessões e presença abaixo já são dados reais.']);
+      else if (stale) alerts.push(['warning', `Métricas do equipamento desatualizadas (última amostra ${ago2(mAge)}).`]);
+      if (m && !stale && m.cpu != null && m.cpu >= 90) alerts.push(['critical', `CPU do MikroTik em ${m.cpu}% (medido). CPU no limite pode reduzir a vazão — hipótese a confirmar comparando com o tráfego.`]);
+      if (m && !stale && memPct != null && memPct >= 90) alerts.push(['critical', `Memória do MikroTik quase cheia: ${memPct}% usada (medido).`]);
+      for (const p of (m && !stale ? m.ports : null) || []) if (p.running && p.rate && /^10Mbps/.test(p.rate)) alerts.push(['warning', `Porta ${p.name} negociou só ${p.rate} (medido). Verifique cabo/porta.`]);
+      if (d.commands_failed_1h > 0) alerts.push(['warning', `${d.commands_failed_1h} comando(s) para o roteador falharam na última hora.`]);
+      const wait = 'aguardando script';
+      out.replaceChildren(
+        h('div', { class: 'live-status' }, badge(online ? 'MikroTik online' : 'MikroTik sem contato', online ? 'green' : 'red'), ' ',
+          h('span', { class: 'muted', text: `Último contato: ${ago2(rAge)} · métricas do equipamento: ${m ? ago2(mAge) : 'nunca recebidas'} · painel atualizado às ${tmf.format(new Date())}` })),
+        alerts.length ? h('div', { class: 'alerts' }, alerts.map(([sev, t]) => h('div', { class: 'alert ' + sev, role: 'alert' }, h('strong', { text: t })))) : '',
+        h('div', { class: 'stats' },
+          statCard('CPU', m && m.cpu != null ? m.cpu + '%' : '—', m ? `${m.board || ''} · RouterOS ${m.version || ''}` : wait, m && m.cpu >= 90 ? 'bad' : 'accent'),
+          statCard('Memória', memPct != null ? memPct + '% usada' : '—', m ? `${mib(m.mem_total - m.mem_free)} de ${mib(m.mem_total)}` : wait, memPct >= 90 ? 'bad' : ''),
+          statCard('Download WAN (Starlink)', m ? fmtMbps(m.wan_rx_mbps) : '—', m ? `tráfego ATUAL na ${m.wan_if || 'WAN'} — não é a capacidade da Starlink` : wait),
+          statCard('Upload WAN', m ? fmtMbps(m.wan_tx_mbps) : '—', m ? `porta ${m.wan_if || '?'}` : wait),
+          statCard('Para o Link1One', m ? fmtMbps(m.lan_tx_mbps) : '—', m ? `saindo pela ${m.lan_if || 'LAN'} · recebido ${fmtMbps(m.lan_rx_mbps)}` : wait),
+          statCard('Sessões autenticadas', String(d.sessions_online ?? (m ? m.active : '—')), `${d.hosts_fresh} aparelho(s) vistos agora`),
+          statCard('Uptime', m ? upFmt(Number(m.uptime_s)) : '—', 'desde a última inicialização'),
+          statCard('Conexões', m && m.conns != null ? String(m.conns) : '—', `comandos pendentes: ${d.commands_open}`)),
+        card('CPU e memória', h('div', null, lineChart(d.series, [{ key: 'cpu', label: 'CPU %', cls: 'a' }, { key: 'mem_used_pct', label: 'Memória usada %', cls: 'b' }], '%', 100),
+          legend([{ label: 'CPU %', cls: 'a' }, { label: 'Memória usada %', cls: 'b' }]))),
+        card('Starlink (WAN) e Link1One (LAN)', h('div', null, lineChart(d.series, [{ key: 'wan_rx', label: 'Download WAN', cls: 'a' }, { key: 'wan_tx', label: 'Upload WAN', cls: 'b' }, { key: 'lan_tx', label: 'Para o Link1One', cls: 'c' }], ''),
+          legend([{ label: 'Download WAN (Mbps)', cls: 'a' }, { label: 'Upload WAN (Mbps)', cls: 'b' }, { label: 'Para o Link1One (Mbps)', cls: 'c' }]))),
+        card('Diagnóstico da lentidão', h('div', null,
+          table(['Medição', 'Valor', 'Fonte'], [
+            ['CPU atual', m && m.cpu != null ? m.cpu + '%' : '—', m ? 'MikroTik (medido)' : wait],
+            ['RAM disponível', m ? mib(m.mem_free) : '—', m ? 'MikroTik (medido)' : wait],
+            ['Tráfego WAN agora', m ? `${fmtMbps(m.wan_rx_mbps)} ↓ / ${fmtMbps(m.wan_tx_mbps)} ↑` : '—', m ? `contadores da ${m.wan_if}` : wait],
+            ['Tráfego LAN (Link1One)', m ? `${fmtMbps(m.lan_tx_mbps)} ↓ / ${fmtMbps(m.lan_rx_mbps)} ↑` : '—', m ? `contadores da ${m.lan_if}` : wait],
+            ['Sessões / aparelhos', `${d.sessions_online ?? '—'} / ${d.hosts_fresh}`, 'Hotspot (medido)'],
+            ['Portas', m ? (m.ports || []).map((p) => `${p.name}: ${p.running ? p.rate || 'ligada' : 'desligada'}`).join(' · ') : '—', m ? 'MikroTik (medido)' : wait],
+            ['Limite de velocidade por usuário', 'nenhum (perfil sem rate-limit)', 'configuração verificada na instalação'],
+          ].map((c) => ({ cells: c }))),
+          h('p', { class: 'muted small', text: 'Como ler: tráfego WAN muito abaixo do que a Starlink entrega + CPU perto de 100% sugere o MikroTik como gargalo (hipótese). Tráfego WAN baixo com CPU folgada aponta para o Wi-Fi/Access Point ou para a Starlink (hipótese). Dados do Link1One (uso do rádio, interferência, CPU) não aparecem aqui: não há integração com esse equipamento.' })))
+      );
+    }
+    async function load() {
+      if (busy) return; busy = true; refreshBtn.disabled = true;
+      try { render(await api('router_monitor', { minutes })); } catch (e) { out.replaceChildren(note('error', e.message)); } finally { busy = false; refreshBtn.disabled = false; }
+    }
+    slot.replaceChildren(h('div', { class: 'toolbar' }, h('div', { class: 'filters' }, sel), h('div', { class: 'toolbar-r' }, refreshBtn)), out);
+    load(); every(load, 15000);
+  }
+
   // ---- rotas ------------------------------------------------------------------------------------------------------------------
   function route() {
     runCleanups();
     if (!session || !me) { renderLogin(); return; }
     const path = currentPath();
-    const titles = { '/admin': 'Ao vivo', '/admin/resumo': 'Resumo', '/admin/pagamentos': 'Pagamentos', '/admin/dispositivos': 'Créditos de horas (antigos)', '/admin/planos': 'Planos e preços', '/admin/relatorios': 'Relatórios', '/admin/config': 'Configurações' };
+    const titles = { '/admin': 'Ao vivo', '/admin/resumo': 'Resumo', '/admin/monitor': 'Monitor do MikroTik', '/admin/pagamentos': 'Pagamentos', '/admin/dispositivos': 'Créditos de horas (antigos)', '/admin/planos': 'Planos e preços', '/admin/relatorios': 'Relatórios', '/admin/config': 'Configurações' };
     const title = titles[path] || 'Ao vivo';
     document.title = title + ' • Wifi a Bordo';
-    const views = { '/admin': liveView, '/admin/resumo': dashboardView, '/admin/pagamentos': paymentsView, '/admin/dispositivos': devicesView, '/admin/planos': plansView, '/admin/relatorios': reportsView, '/admin/config': configView };
+    const views = { '/admin': liveView, '/admin/resumo': dashboardView, '/admin/monitor': monitorView, '/admin/pagamentos': paymentsView, '/admin/dispositivos': devicesView, '/admin/planos': plansView, '/admin/relatorios': reportsView, '/admin/config': configView };
     const view = views[path] || liveView;
     const state = loadPeriod();
     lazyView(title, (slot) => view(slot, state));

@@ -118,6 +118,9 @@ async function handleAction(action, input, who) {
       return rpc('hotspot_admin_device_reset', { p_actor: who.id, p_actor_email: who.email, p_mac: mac });
     }
 
+    case 'router_monitor':
+      return rpc('hotspot_admin_router_monitor', { p_minutes: pageNum(input?.minutes, 60, 2880) });
+
     case 'end_trip':
       return rpc('hotspot_admin_end_trip', { p_actor: who.id, p_actor_email: who.email, p_confirm: textArg(input?.confirm, 20) });
 
