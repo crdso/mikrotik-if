@@ -141,3 +141,13 @@ tr.click{cursor:pointer}
 .btn.danger{color:var(--red);border-color:#f0bcbc}
 .small{font-size:12px}
 .live .stats{margin-bottom:14px}
+
+/* Monitor do MikroTik */
+.chart{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .axis{fill:var(--muted);font-size:11px}
+.chart .ln{stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.chart .ln.a{stroke:#1565d8}.chart .ln.b{stroke:#e08a00}.chart .ln.c{stroke:#1f9d62}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12.5px;color:var(--muted)}
+.lg::before{content:"";display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.lg.a::before{background:#1565d8}.lg.b::before{background:#e08a00}.lg.c::before{background:#1f9d62}

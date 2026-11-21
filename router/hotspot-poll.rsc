@@ -67,6 +67,9 @@
 # Servidor Hotspot (o gerador troca pelo seu). A pasta HTML (ex.: flash/hotspot) e LIDA deste perfil a cada
 # execucao (html-directory); e la que ficam os avisos "hsx-<MAC>.txt".
 :local hprof "hsprof1"
+# Monitor do painel: portas da Starlink (WAN) e do Access Point (LAN). Confira os nomes em /interface print.
+:local wanIf "ether1"
+:local lanIf "ether2"
 # Reautenticacao automatica: no maximo healMax aparelhos por execucao; cada MAC no maximo 1 vez a cada healEvery.
 :local healMax 3
 :local healEvery 3m
@@ -364,6 +367,31 @@
         :do {
             :if (($now - $wifiTelLast) >= $telEvery) do={
                 :set wifiTelLast $now
+                # Metricas do equipamento (somente leitura, 1 envio a cada telEvery). Erro aqui nunca afeta o resto.
+                :do {
+                    :local mc [/system resource get cpu-load]
+                    :local mf [/system resource get free-memory]
+                    :local mt [/system resource get total-memory]
+                    :local mu [/system resource get uptime]
+                    :local mv [/system resource get version]
+                    :local mb [/system resource get board-name]
+                    :local wr 0; :local wt 0; :local lr 0; :local lt 0
+                    :do { :set wr [/interface get [find name=$wanIf] rx-byte]; :set wt [/interface get [find name=$wanIf] tx-byte] } on-error={ }
+                    :do { :set lr [/interface get [find name=$lanIf] rx-byte]; :set lt [/interface get [find name=$lanIf] tx-byte] } on-error={ }
+                    :local pl ""
+                    :foreach e in=[/interface ethernet find] do={
+                        :local en [/interface ethernet get $e name]
+                        :local er ""
+                        :local ru "0"
+                        :if ([/interface get [find name=$en] running] = true) do={ :set ru "1" }
+                        :if ($ru = "1") do={ :do { /interface ethernet monitor $e once do={ :set er $"rate" } } on-error={ } }
+                        :set pl ($pl . $en . "/" . $ru . "/" . $er . "|")
+                    }
+                    :local cn 0
+                    :do { :set cn [/ip firewall connection print count-only] } on-error={ }
+                    :local md ("cpu:" . $mc . ",mf:" . $mf . ",mt:" . $mt . ",up:" . $mu . ",ver:" . $mv . ",brd:" . $mb . ",wi:" . $wanIf . ",li:" . $lanIf . ",wr:" . $wr . ",wt:" . $wt . ",lr:" . $lr . ",lt:" . $lt . ",h:" . [:len [/ip hotspot host find]] . ",a:" . [:len [/ip hotspot active find]] . ",cn:" . $cn . ",p:" . $pl)
+                    /tool fetch url=$api mode=https http-method=post http-data=("m=" . $md) check-certificate=$tls http-header-field=("X-Router-Key: " . $secret . ",Content-Type: application/x-www-form-urlencoded") output=none
+                } on-error={ :log warning "wifi-poll: falha ao enviar metricas" }
                 :local online [:len [/ip hotspot active find]]
                 :local batch ""
                 :local nb 0

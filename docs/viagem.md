@@ -136,3 +136,17 @@ cada campo e nunca executa texto vindo da rede. Comando sem ACK volta à fila ap
 O portal mostra 5 minutos; o Mercado Pago recebe 30 minutos (prazos curtos são cancelados na hora pelo MP). Antes de
 gerar um Pix novo, os Pix vencidos aqui mas ainda abertos no MP são cancelados no MP; se algum já tiver sido pago, o
 pagamento é aplicado. Pagamento que chegue mesmo assim depois do vencimento é aplicado normalmente.
+
+## Monitor do MikroTik (painel `/admin/monitor`)
+
+* Fonte: o próprio `wifi-poll`, junto da telemetria de ~60 s — **uma** requisição de saída a mais por minuto, somente
+  leitura (CPU, RAM, uptime, versão, contadores de bytes da WAN e da LAN, estado/velocidade das portas, sessões, hosts,
+  conexões). Nenhuma porta de entrada, nenhum túnel, nenhum speedtest/bandwidth-test no roteador.
+* Mbps = diferença dos contadores de bytes entre duas amostras ÷ intervalo. Reinício do roteador (uptime menor) ou
+  contador que voltou descarta a taxa daquela amostra. É o tráfego **atual**, não a capacidade da Starlink.
+* Portas: `wanIf` (padrão `ether1`, Starlink) e `lanIf` (padrão `ether2`, Access Point) no início do script — confira
+  com `/interface print`.
+* Retenção: `metrics_retention_hours` (padrão 48 h). Somente administradores/operadores logados veem os dados.
+* Sem o script novo, o painel mostra o que já existe (contato do roteador, sessões, presença) e avisa
+  "Métricas do equipamento aguardando atualização do script RouterOS".
+* Dados do Link1One (uso do rádio, interferência, CPU) não são exibidos: não há integração com esse equipamento.

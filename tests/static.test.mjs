@@ -119,7 +119,7 @@ test('RouterOS (.rsc): delimitadores balanceados, TLS validado, constantes batem
   assert.equal((live.match(/\/ip hotspot host remove/g) || []).length, 1, 'remoção de host só no plano B, para um MAC');
   assert.doesNotMatch(live, /\/ip hotspot user remove|\/ip hotspot host remove \[find\]/, 'nunca apaga usuários nem todos os hosts');
   assert.match(live, /limit-uptime=0s comment="v:viagem"/, 'acesso de viagem sem limite de tempo');
-  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 6, 'GET, ACK, ACK de comando, aviso de esgotado e os 2 envios de telemetria usam a validação');
+  assert.equal((live.match(/check-certificate=\$tls/g) || []).length, 7, 'GET, ACK, ACK de comando, aviso de esgotado, 2 envios de telemetria e o envio de métricas usam a validação');
   assert.match(live, /"expired=" \. \$toRep/); assert.match(live, /:local expMargin 10s/); assert.match(live, /\[\/ip hotspot user get \$eu uptime\] \+ \$expMargin\) >= \$lim/);
   assert.match(live, /:local maxGrant 2d/);
   assert.match(live, /:local profile "wifi-5h"/);

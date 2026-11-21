@@ -586,6 +586,6 @@ test('script do roteador: telemetria só lê o Hotspot, usa a mesma chave e vali
   assert.ok(rsc.includes('if ($nb >= 10)'), 'blocos de 10');
   const tel = rsc.slice(rsc.indexOf('Telemetria')); const part = rsc.slice(rsc.indexOf(':set wifiTelLast $now'));
   assert.ok(part.includes('/ip hotspot active find') && part.includes('limit-uptime'));
-  assert.doesNotMatch(part, /\/ip hotspot (user|active) (add|set|remove|disable)|\/file (set|remove|print)|\/system|\/ip firewall/, 'telemetria não altera nada no roteador');
+  assert.doesNotMatch(part, /\/ip hotspot (user|active) (add|set|remove|disable)|\/file (set|remove|print)|\/system (reboot|reset|script|backup|scheduler)|\/ip firewall \w+ (add|set|remove|disable)|\/interface \w* ?(set|disable|enable|reset)/, 'telemetria e métricas só LEEM o roteador');
   assert.ok(tel.length > 0);
 });

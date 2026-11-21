@@ -66,6 +66,28 @@ export async function handler(req) {
       }
       // Telemetria agregada (a cada ~60 s): "tel=MAC_IP_uso_limite_A,..." (até 20 por chamada) e "online=<n>".
       // Uso/limite chegam no formato de tempo do RouterOS (1h2m3s ou 01:02:03); limite vazio ou 0 = sem limite.
+      // Métricas do equipamento (somente leitura, ~60 s): "m=cpu:12,mf:..,mt:..,up:1d02:03:04,ver:..,brd:..,wi:ether1,
+      // li:ether2,wr:..,wt:..,lr:..,lt:..,h:30,a:25,cn:900,p:ether1/1/100Mbps|ether2/1/1Gbps". Campos validados um a um;
+      // campo inválido vira nulo. Falha aqui nunca afeta comandos, Pix ou cortesia (rota separada, erro isolado).
+      if (data?.m !== undefined) {
+        const raw = String(data.m);
+        if (raw.length > 1500) return json({ error: 'Invalid metrics' }, 400);
+        const kv = {};
+        for (const part of raw.split(',')) { const i = part.indexOf(':'); if (i > 0) kv[part.slice(0, i).trim()] = part.slice(i + 1).trim(); }
+        const int = (v, max) => (/^\d{1,15}$/.test(String(v ?? '')) && Number(v) <= max ? Number(v) : null);
+        const txt = (v, max) => { const t = String(v ?? '').replace(/[^A-Za-z0-9 ._()\-]/g, '').slice(0, max); return t || null; };
+        const ports = String(kv.p ?? '').split('|').slice(0, 8).map((x) => x.split('/')).filter((f) => /^[A-Za-z0-9_.-]{1,20}$/.test(f[0] || ''))
+          .map((f) => ({ name: f[0], running: f[1] === '1' || f[1] === 'true', rate: txt(f[2], 12) }));
+        const m = {
+          cpu: int(kv.cpu, 100), mem_free: int(kv.mf, 1e12), mem_total: int(kv.mt, 1e12), uptime_s: parseRosDuration(kv.up),
+          version: txt(kv.ver, 40), board: txt(kv.brd, 40), wan_if: txt(kv.wi, 20), lan_if: txt(kv.li, 20),
+          wan_rx: int(kv.wr, 1e18), wan_tx: int(kv.wt, 1e18), lan_rx: int(kv.lr, 1e18), lan_tx: int(kv.lt, 1e18),
+          hosts: int(kv.h, 5000), active: int(kv.a, 5000), conns: int(kv.cn, 1000000), ports,
+        };
+        if (m.cpu === null && m.mem_free === null) return json({ error: 'Invalid metrics' }, 400);
+        const r = await rpc('hotspot_router_report_metrics', { p: m });
+        return json({ ok: true, rate: Boolean(r?.rate) });
+      }
       if (data?.tel !== undefined) {
         const raw = String(data.tel);
         if (raw.length > 2000) return json({ error: 'Invalid telemetry' }, 400);
